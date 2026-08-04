@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cook — teatime</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="editor-page">
+<header class="topbar">
+  <a class="brand" href="/">teatime</a>
+  <span id="recipeTitle" class="title"></span>
+  <span id="total"></span>
+  <span class="spacer"></span>
+  <div class="clocks">
+    <span id="wallClock"></span>
+    <span id="clock"></span>
+  </div>
+  <button id="zoomOut" title="Zoom out">&minus;</button>
+  <button id="zoomIn" title="Zoom in">+</button>
+  <button id="resetBtn" class="danger" hidden>Reset</button>
+  <button id="startBtn" class="primary">Start cooking</button>
+  <a id="editLink"><button>Edit</button></a>
+</header>
+<main class="board">
+  <div class="lanes-col">
+    <div class="ruler-spacer"></div>
+    <div id="laneNames"></div>
+  </div>
+  <div class="timeline">
+    <div id="ruler"></div>
+    <div id="rows"></div>
+  </div>
+</main>
+<section id="ingredients" hidden></section>
+<div id="overlay" hidden>
+  <div id="bigstep"></div>
+</div>
+<script src="common.js"></script>
+<script src="cook.js"></script>
+</body>
+</html>

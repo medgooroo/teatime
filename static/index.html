@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>teatime</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="/">teatime</a>
+  <span class="spacer"></span>
+  <a href="editor.html"><button class="primary">New recipe</button></a>
+</header>
+<main class="home">
+  <input id="search" type="search" placeholder="Search recipes and meals" autofocus>
+  <section id="meal" hidden>
+    <h2>Meal</h2>
+    <ul id="mealList"></ul>
+    <div class="meal-actions">
+      <span id="mealTotal"></span>
+      <button id="clearMeal">Clear</button>
+      <button id="saveMealBtn">Save meal</button>
+      <a id="cookMeal"><button class="primary">Cook meal</button></a>
+    </div>
+  </section>
+  <section id="mealsSaved" hidden>
+    <h2>Saved meals</h2>
+    <ul id="mealsList" class="cards"></ul>
+  </section>
+  <h2 id="recipesHeading">Recipes</h2>
+  <ul id="results" class="cards"></ul>
+</main>
+<script src="common.js"></script>
+<script src="index.js"></script>
+</body>
+</html>

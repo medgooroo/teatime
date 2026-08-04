@@ -1,0 +1,139 @@
+{
+  "id": "yakitori-chicken-skewer-rice-bowl",
+  "name": "Yakitori chicken skewer rice bowl",
+  "description": "Miso-honey chicken skewers with jasmine rice, pickled radish, mangetout and sesame mayo. Serves 2, ready in 40 minutes.",
+  "ingredients": [
+    "4 British chicken thighs",
+    "234g jasmine rice",
+    "50g soy sauce",
+    "30g miso paste",
+    "15g honey",
+    "15g rice vinegar",
+    "15g sesame seeds",
+    "100g radishes",
+    "150g mangetout",
+    "4 spring onions",
+    "1 lime",
+    "Mayonnaise",
+    "4 bamboo skewers",
+    "1/2 tsp sugar (not supplied)",
+    "300g water for the rice (not supplied)",
+    "Oil, salt and pepper"
+  ],
+  "lanes": [
+    {
+      "id": "l-chicken",
+      "name": "Chicken"
+    },
+    {
+      "id": "l-rice",
+      "name": "Rice"
+    },
+    {
+      "id": "l-pickles",
+      "name": "Pickles \u0026 mayo"
+    },
+    {
+      "id": "l-veg",
+      "name": "Veg \u0026 glaze"
+    }
+  ],
+  "steps": [
+    {
+      "id": "s-prep",
+      "laneId": "l-chicken",
+      "name": "Prep and marinate",
+      "instructions": "Preheat the oven to 200C and put the bamboo skewers in water to soak. Halve the lime. Slice the green parts of the spring onions thinly and set aside for serving; cut the white parts into thirds.\n\nMix the soy sauce, miso paste and honey in a large bowl, then transfer half to a mug and save it for the glaze. Whisk a drizzle of oil into what is left in the bowl.\n\nCut the chicken thighs into 2cm chunks, add to the bowl and mix to coat. Cover and leave to marinate. Wash your hands and everything the raw chicken touched.",
+      "start": 0,
+      "duration": 600
+    },
+    {
+      "id": "s-marinate",
+      "laneId": "l-chicken",
+      "name": "Marinate",
+      "instructions": "Chicken sits covered in the marinade. Nothing to do.",
+      "start": 600,
+      "duration": 660
+    },
+    {
+      "id": "s-thread",
+      "laneId": "l-chicken",
+      "name": "Thread skewers",
+      "instructions": "Line a baking tray with foil. Thread the chicken and the spring onion whites onto the soaked skewers, two per person. Lay them lengthways on the tray, spaced apart. Pour over any marinade left in the bowl, drizzle with oil and season with salt and pepper.",
+      "start": 1260,
+      "duration": 120
+    },
+    {
+      "id": "s-roast",
+      "laneId": "l-chicken",
+      "name": "Roast skewers",
+      "instructions": "Into the oven. Turn the skewers halfway. Done when charred at the edges and no longer pink inside.",
+      "start": 1380,
+      "duration": 960
+    },
+    {
+      "id": "s-serve",
+      "laneId": "l-chicken",
+      "name": "Assemble and serve",
+      "instructions": "Divide the rice between two bowls. Add the mangetout, pickled radish, a spoon of sesame mayo and the chicken skewers. Drizzle the glaze over, scatter with the spring onion greens and serve with lime wedges.",
+      "start": 2340,
+      "duration": 60
+    },
+    {
+      "id": "s-pickle",
+      "laneId": "l-pickles",
+      "name": "Pickle the radishes",
+      "instructions": "Trim and thinly slice the radishes. Mix the rice vinegar with 1/2 tsp sugar and a pinch of salt in a small bowl, add the radishes and set aside. They only need the time they get.",
+      "start": 600,
+      "duration": 180
+    },
+    {
+      "id": "s-sesame",
+      "laneId": "l-pickles",
+      "name": "Toast sesame, make mayo",
+      "instructions": "Dry frying pan over medium heat, no oil. Toast the sesame seeds for 1-2 minutes until golden, stirring often so they don't catch. Tip into a bowl, mix with the mayonnaise and a splash of water, then season with salt and pepper. Set aside.",
+      "start": 780,
+      "duration": 180
+    },
+    {
+      "id": "s-boil",
+      "laneId": "l-rice",
+      "name": "Boil the water",
+      "instructions": "300g water into a saucepan, lid on, bring to the boil.",
+      "start": 840,
+      "duration": 300
+    },
+    {
+      "id": "s-rice",
+      "laneId": "l-rice",
+      "name": "Cook the rice",
+      "instructions": "Salt the water, stir in the rice, drop the heat to medium and cover. Leave it alone.",
+      "start": 1140,
+      "duration": 600
+    },
+    {
+      "id": "s-rest",
+      "laneId": "l-rice",
+      "name": "Rest the rice",
+      "instructions": "Off the heat, lid still on. It will hold happily until you serve.",
+      "start": 1740,
+      "duration": 600
+    },
+    {
+      "id": "s-glaze",
+      "laneId": "l-veg",
+      "name": "Make the glaze",
+      "instructions": "Cut the lime into wedges. Squeeze the juice of half the lime into the sauce you saved in the mug and mix. Pour into a frying pan and simmer over medium heat for a minute, stirring, until slightly thickened.",
+      "start": 1920,
+      "duration": 120
+    },
+    {
+      "id": "s-mangetout",
+      "laneId": "l-veg",
+      "name": "Fry the mangetout",
+      "instructions": "Oil in a large frying pan over medium-high heat. Add the mangetout, season with salt and pepper and stir fry until tender with a bit of bite left.",
+      "start": 2040,
+      "duration": 240
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+services:
+  teatime:
+    build: .
+    image: tea
+    networks:
+      - web
+    ports:
+      - "127.0.0.1:8080:80"
+    volumes:
+      - tea-data:/data
+    restart: unless-stopped
+volumes:
+  tea-data:
+networks:
+  web:
+    name: web
+    external: true

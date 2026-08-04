@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Recipe editor — teatime</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="editor-page">
+<header class="topbar">
+  <a class="brand" href="/">teatime</a>
+  <input id="recipeName" placeholder="Recipe name" value="New recipe">
+  <span id="total"></span>
+  <span class="spacer"></span>
+  <button id="modeBtn">Ingredients</button>
+  <button id="zoomOut" title="Zoom out">&minus;</button>
+  <button id="zoomIn" title="Zoom in">+</button>
+  <a id="cookLink" hidden><button>Cook</button></a>
+  <button id="saveBtn" class="primary">Save</button>
+  <span id="status"></span>
+</header>
+<main class="board">
+  <div class="lanes-col">
+    <div class="ruler-spacer"></div>
+    <div id="laneNames"></div>
+    <button id="addLane">Add lane</button>
+  </div>
+  <div class="timeline">
+    <div id="ruler"></div>
+    <div id="rows"></div>
+  </div>
+  <aside id="panel" hidden>
+    <h2>Step</h2>
+    <label>Name <input id="stepName"></label>
+    <label>Starts at <input id="stepStart"></label>
+    <label>Duration <input id="stepDur"></label>
+    <label>Instructions <textarea id="stepInstr" rows="10" placeholder="What to do during this step"></textarea></label>
+    <button id="stepDelete" class="danger">Delete step</button>
+  </aside>
+</main>
+<section id="ingredientsEd" hidden>
+  <label for="ingredientsText">Ingredients, one per line</label>
+  <textarea id="ingredientsText" placeholder="2 tbsp olive oil&#10;1 onion, finely chopped"></textarea>
+</section>
+<footer class="hint">Double-click a lane to add a step. Drag steps to move them between times and lanes, drag the right edge to change duration. Click a step to edit its details.</footer>
+<script src="common.js"></script>
+<script src="editor.js"></script>
+</body>
+</html>
