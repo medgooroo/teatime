@@ -1,5 +1,8 @@
 .git
 teatime
 teatime.exe
+teatime.exe~
 docker-compose.yaml
 *.md
+data/
+guardian-cache/
