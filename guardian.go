@@ -331,16 +331,21 @@ func convertGuardian(r *gRecipe, uid string) *Recipe {
 
 /* ---------- syncing into the store ---------- */
 
-// A handful of indexed recipes are permanently unavailable (403, or content that
-// won't parse). Remembering them keeps every later check from retrying and
-// reporting them as new. Dotfile so the recipe listing ignores it.
-func failedPath(st *Store) string {
+// Two lists of Guardian ids the sync must not import: ones that are permanently
+// unavailable (403, or content that won't parse), and ones you have deleted.
+// Without the second, deleting an imported recipe just means the next check
+// fetches it again. Dotfiles, so the recipe listing ignores them.
+func unavailablePath(st *Store) string {
 	return filepath.Join(st.dir, ".guardian-unavailable.json")
 }
 
-func loadFailed(st *Store) map[string]bool {
+func deletedPath(st *Store) string {
+	return filepath.Join(st.dir, ".guardian-deleted.json")
+}
+
+func loadIDSet(path string) map[string]bool {
 	out := map[string]bool{}
-	b, err := os.ReadFile(failedPath(st))
+	b, err := os.ReadFile(path)
 	if err != nil {
 		return out
 	}
@@ -352,14 +357,35 @@ func loadFailed(st *Store) map[string]bool {
 	return out
 }
 
-func saveFailed(st *Store, m map[string]bool) {
+func saveIDSet(path string, m map[string]bool) {
 	ids := make([]string, 0, len(m))
 	for id := range m {
 		ids = append(ids, id)
 	}
 	sort.Strings(ids)
 	b, _ := json.MarshalIndent(ids, "", " ")
-	os.WriteFile(failedPath(st), b, 0644)
+	os.WriteFile(path, b, 0644)
+}
+
+// Called when a recipe is deleted, so a later check leaves it alone.
+func recordGuardianDeletion(st *Store, rec *Recipe) {
+	if rec == nil || rec.Source == nil || rec.Source.Type != "guardian" || rec.Source.UID == "" {
+		return
+	}
+	set := loadIDSet(deletedPath(st))
+	if set[rec.Source.UID] {
+		return
+	}
+	set[rec.Source.UID] = true
+	saveIDSet(deletedPath(st), set)
+	log.Printf("guardian: %q deleted, will not be re-imported", rec.Name)
+}
+
+// Clears the deleted list so the next check pulls them back in.
+func forgetGuardianDeletions(st *Store) int {
+	n := len(loadIDSet(deletedPath(st)))
+	os.Remove(deletedPath(st))
+	return n
 }
 
 // Progress of an import, polled by the browser while it runs.
@@ -372,6 +398,7 @@ type SyncState struct {
 	Added       int    `json:"added"`
 	Failed      int    `json:"failed"`
 	Unavailable int    `json:"unavailable"`
+	Removed     int    `json:"removed"`
 	Current     string `json:"current"`
 	Names   []string `json:"names,omitempty"`
 	Partial bool     `json:"partial,omitempty"`
@@ -443,12 +470,17 @@ func runSyncGuardian(st *Store, limit int) {
 		return
 	}
 
-	dead := loadFailed(st)
+	dead := loadIDSet(unavailablePath(st))
+	deleted := loadIDSet(deletedPath(st))
 	var todo []gEntry
-	already, unavailable := 0, 0
+	already, unavailable, removed := 0, 0, 0
 	for _, e := range idx.Recipes {
 		if have[e.RecipeUID] {
 			already++
+			continue
+		}
+		if deleted[e.RecipeUID] {
+			removed++ // you deleted this one; leave it alone
 			continue
 		}
 		if dead[e.RecipeUID] {
@@ -457,7 +489,7 @@ func runSyncGuardian(st *Store, limit int) {
 		}
 		todo = append(todo, e)
 	}
-	setSync(func(s *SyncState) { s.Unavailable = unavailable })
+	setSync(func(s *SyncState) { s.Unavailable, s.Removed = unavailable, removed })
 	partial := false
 	if limit > 0 && len(todo) > limit {
 		todo, partial = todo[:limit], true
@@ -493,7 +525,7 @@ func runSyncGuardian(st *Store, limit int) {
 	}
 
 	if newlyDead {
-		saveFailed(st, dead)
+		saveIDSet(unavailablePath(st), dead)
 	}
 	finish()
 	s := syncStatus()

@@ -447,6 +447,12 @@ function renderSync(s) {
   head.append(stage);
 
   if (!s.running) {
+    if (s.removed) {
+      const undo = document.createElement('button');
+      undo.textContent = `Bring back ${s.removed} deleted`;
+      undo.addEventListener('click', () => runSync('?forget=1'));
+      head.append(undo);
+    }
     const close = document.createElement('button');
     close.textContent = 'Dismiss';
     close.addEventListener('click', () => { syncPanel.hidden = true; });
@@ -471,6 +477,7 @@ function renderSync(s) {
     if (s.toFetch) parts.push(`${s.toFetch.toLocaleString()} new`);
     if (s.failed) parts.push(`${s.failed} could not be read`);
     if (s.unavailable) parts.push(`${s.unavailable} unavailable, skipped`);
+    if (s.removed) parts.push(`${s.removed} you deleted, left out`);
     line.textContent = parts.join(' · ');
     syncPanel.append(line);
   }
@@ -507,12 +514,12 @@ function renderSync(s) {
   }
 }
 
-$('#syncBtn').addEventListener('click', async () => {
+async function runSync(query = '') {
   const btn = $('#syncBtn');
   btn.disabled = true;
   renderSync({ running: true, stage: 'Contacting the Guardian…' });
   try {
-    let s = await (await fetch('/api/guardian/sync', { method: 'POST' })).json();
+    let s = await (await fetch('/api/guardian/sync' + query, { method: 'POST' })).json();
     renderSync(s);
     while (s.running) {
       await new Promise(r => setTimeout(r, 400));
@@ -525,6 +532,8 @@ $('#syncBtn').addEventListener('click', async () => {
   } finally {
     btn.disabled = false;
   }
-});
+}
+
+$('#syncBtn').addEventListener('click', () => runSync());
 
 fetchMeals().then(refresh);

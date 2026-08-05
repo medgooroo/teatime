@@ -33,6 +33,13 @@ It also backs `GET /api/recipes/{id}/source`, which returns the recipe as
 published — the editor shows it in an **Original** panel so you can rework the
 timeline against the real method.
 
+**Deleting an imported recipe makes it stay deleted.** Its Guardian id is
+recorded in `data/.guardian-deleted.json` and skipped by every later check,
+which reports how many it left out. To undo, press "Bring back N deleted" in
+that report, or `POST /api/guardian/sync?forget=1`. Recipes the Guardian
+indexes but won't serve are tracked the same way in
+`data/.guardian-unavailable.json`.
+
 Conversion is mechanical: step durations are read out of the prose where stated
 ("simmer for 25 minutes"), unattended stretches get an end alarm, and a step
 beginning "meanwhile" moves into a parallel lane if it fits inside the passive

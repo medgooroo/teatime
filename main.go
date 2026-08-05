@@ -490,10 +490,14 @@ func apiHandler(st *Store) http.HandlerFunc {
 			}
 			writeJSON(w, http.StatusOK, rec)
 		case id != "" && r.Method == http.MethodDelete:
+			// read it first: an imported recipe has to be remembered as deleted,
+			// or the next Guardian check simply fetches it again
+			rec, _ := st.get(id)
 			if err := st.delete(id); err != nil {
 				httpError(w, err)
 				return
 			}
+			recordGuardianDeletion(st, rec)
 			w.WriteHeader(http.StatusNoContent)
 		default:
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -717,6 +721,11 @@ func main() {
 		case http.MethodGet:
 			writeJSON(w, http.StatusOK, syncStatus())
 		case http.MethodPost:
+			// ?forget=1 clears the record of what you deleted, so the next check
+			// brings those recipes back
+			if r.URL.Query().Get("forget") == "1" {
+				log.Printf("guardian: forgetting %d deletions", forgetGuardianDeletions(st))
+			}
 			limit := 500
 			fmt.Sscanf(r.URL.Query().Get("limit"), "%d", &limit)
 			writeJSON(w, http.StatusOK, startSyncGuardian(st, limit))
