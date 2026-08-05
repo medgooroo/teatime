@@ -91,6 +91,27 @@ input:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: 
 }
 .searchbar { display: flex; flex-wrap: wrap; gap: 8px; }
 .searchbar input { flex: 1 1 260px; padding: 9px 12px; font-size: 16px; min-width: 0; }
+/* backup and restore */
+#backup {
+  margin: 40px 0 24px;
+  padding: 14px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+#backup h2 { margin-top: 0; }
+.backup-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.backup-note { color: var(--muted); font-size: 13px; margin: 0; }
+.backup-mode { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+.backup-mode input { width: 16px; height: 16px; accent-color: var(--danger); }
+#restoreFile { font-size: 13px; max-width: 100%; }
+
 /* Guardian import progress */
 #syncPanel {
   margin-top: 16px;

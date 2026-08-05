@@ -536,4 +536,70 @@ async function runSync(query = '') {
 
 $('#syncBtn').addEventListener('click', () => runSync());
 
+/* ---------- backup and restore ---------- */
+
+const backupStatus = $('#backupStatus');
+
+$('#backupBtn').addEventListener('click', async () => {
+  const btn = $('#backupBtn');
+  btn.disabled = true;
+  backupStatus.textContent = 'Building the archive…';
+  try {
+    const res = await fetch('/api/backup');
+    if (!res.ok) throw new Error(await res.text());
+    const count = res.headers.get('X-Recipe-Count');
+    const blob = await res.blob();
+    const name = (res.headers.get('Content-Disposition') || '').match(/filename="([^"]+)"/);
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name ? name[1] : 'teatime-backup.tar.gz';
+    a.click();
+    URL.revokeObjectURL(a.href);
+    const mb = (blob.size / 1048576).toFixed(1);
+    backupStatus.textContent = `Saved ${count} files, ${mb} MB.`;
+  } catch (e) {
+    backupStatus.textContent = 'Backup failed: ' + e.message;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+$('#restoreFile').addEventListener('change', () => {
+  $('#restoreBtn').disabled = !$('#restoreFile').files.length;
+  backupStatus.textContent = '';
+});
+
+$('#restoreBtn').addEventListener('click', async () => {
+  const file = $('#restoreFile').files[0];
+  if (!file) return;
+  const replace = $('#restoreReplace').checked;
+
+  const warning = replace
+    ? `Restore from "${file.name}", DELETING every recipe not in it?`
+    : `Restore from "${file.name}"? Recipes in the backup will overwrite what is here; anything else is left alone.`;
+  if (!confirm(warning)) return;
+
+  const btn = $('#restoreBtn');
+  btn.disabled = true;
+  backupStatus.textContent = 'Restoring…';
+  try {
+    const res = await fetch('/api/restore?mode=' + (replace ? 'replace' : 'merge'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/gzip' },
+      body: file,
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const r = await res.json();
+    const bits = [`${r.restored} restored`];
+    if (r.removed) bits.push(`${r.removed} removed`);
+    if (r.skipped) bits.push(`${r.skipped} skipped`);
+    backupStatus.textContent = bits.join(', ') + '.';
+    await refresh();
+  } catch (e) {
+    backupStatus.textContent = 'Restore failed: ' + e.message;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
 fetchMeals().then(refresh);

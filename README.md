@@ -54,6 +54,31 @@ ingredients; the second takes a comma-separated ingredient list and returns
 only recipes containing **all** of them. Matching is substring-based, so
 `chicken` also matches `chicken stock`.
 
+## Backup and restore
+
+At the bottom of the home page. **Download a backup** gives you the whole data
+directory — recipes, saved meals, stars, Guardian bookkeeping — as one
+`.tar.gz`, around 7MB for 7,900 recipes. It is an ordinary tar, so it can be
+opened by hand.
+
+Restoring takes that file back:
+
+- **Merge** (default) writes the backup's recipes over what is there and leaves
+  anything else alone. Safe to run against a live store.
+- **Replace** additionally deletes recipes that aren't in the backup, so the
+  store ends up exactly as it was. This is the one for recovering a machine.
+
+The archive is read fully before anything is written, so a truncated or corrupt
+file is rejected without touching the store. Entry names are checked against a
+strict pattern — no absolute paths, no traversal, nothing outside `meals/`.
+
+Same thing over HTTP: `GET /api/backup`, `POST /api/restore?mode=merge|replace`
+with the archive as the body.
+
+**A rebuild never touches recipes.** The image contains no data and the store
+lives in the `tea-data` volume, so `docker compose up -d --build` only replaces
+the container. Take a backup before anything that touches the volume itself.
+
 ## Stars
 
 Star a recipe to shortlist it for the week ahead — the star sits in the corner

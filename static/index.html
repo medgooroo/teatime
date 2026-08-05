@@ -39,6 +39,23 @@
   </section>
   <h2 id="recipesHeading">Recipes</h2>
   <div id="results" class="grid"></div>
+
+  <section id="backup">
+    <h2>Backup</h2>
+    <div class="backup-row">
+      <button id="backupBtn">Download a backup</button>
+      <span class="backup-note">Every recipe, saved meal and setting, as one file.</span>
+    </div>
+    <div class="backup-row">
+      <input id="restoreFile" type="file" accept=".gz,.tgz,application/gzip">
+      <label class="backup-mode">
+        <input type="checkbox" id="restoreReplace">
+        Replace everything (delete recipes not in the backup)
+      </label>
+      <button id="restoreBtn" disabled>Restore</button>
+    </div>
+    <p id="backupStatus" class="backup-note"></p>
+  </section>
 </main>
 <div id="detail" hidden>
   <article id="detailCard"></article>

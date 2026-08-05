@@ -735,6 +735,8 @@ func main() {
 	})
 	mux.HandleFunc("/api/meals", mealsHandler(ms))
 	mux.HandleFunc("/api/meals/", mealsHandler(ms))
+	mux.HandleFunc("/api/backup", backupHandler(st))
+	mux.HandleFunc("/api/restore", restoreHandler(st))
 	// without this browsers apply heuristic freshness and can sit on a stale
 	// script for hours; "no-cache" still allows 304s, it just forces a revalidate
 	mux.Handle("/", noCache(http.FileServer(http.Dir(*staticDir))))
