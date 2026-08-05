@@ -4,8 +4,6 @@ services:
     image: tea
     networks:
       - web
-    ports:
-      - "127.0.0.1:8080:80"
     volumes:
       - tea-data:/data
     restart: unless-stopped
@@ -14,4 +12,6 @@ volumes:
 networks:
   web:
     name: web
+    # Caddy owns this network; without external, "docker compose down" here
+    # would try to delete it and take the reverse proxy's other sites with it
     external: true
