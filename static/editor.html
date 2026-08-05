@@ -13,6 +13,7 @@
   <span id="total"></span>
   <span class="spacer"></span>
   <button id="modeBtn">Ingredients</button>
+  <button id="sourceBtn" hidden>Original</button>
   <button id="zoomOut" title="Zoom out">&minus;</button>
   <button id="zoomIn" title="Zoom in">+</button>
   <a id="cookLink" hidden><button>Cook</button></a>
@@ -34,15 +35,24 @@
     <label>Name <input id="stepName"></label>
     <label>Starts at <input id="stepStart"></label>
     <label>Duration <input id="stepDur"></label>
+    <label>Alarm
+      <select id="stepAlarm">
+        <option value="">None</option>
+        <option value="start">When it starts</option>
+        <option value="end">When it finishes</option>
+        <option value="both">Both</option>
+      </select>
+    </label>
     <label>Instructions <textarea id="stepInstr" rows="10" placeholder="What to do during this step"></textarea></label>
     <button id="stepDelete" class="danger">Delete step</button>
   </aside>
+  <aside id="sourcePanel" hidden></aside>
 </main>
 <section id="ingredientsEd" hidden>
   <label for="ingredientsText">Ingredients, one per line</label>
   <textarea id="ingredientsText" placeholder="2 tbsp olive oil&#10;1 onion, finely chopped"></textarea>
 </section>
-<footer class="hint">Double-click a lane to add a step. Drag steps to move them between times and lanes, drag the right edge to change duration. Click a step to edit its details.</footer>
+<footer class="hint">Double-click a lane to add a step. Drag steps to move them between times and lanes, drag the right edge to change duration; dragging pushes neighbours along and never reorders them. Click a step to edit its details. For an imported recipe, Original shows the published method — click any of its steps to copy the wording into the selected step.</footer>
 <script src="common.js"></script>
 <script src="editor.js"></script>
 </body>

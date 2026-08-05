@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 )
 
 type Lane struct {
@@ -27,6 +29,15 @@ type Step struct {
 	Instructions string `json:"instructions"`
 	Start        int    `json:"start"`    // seconds from recipe start
 	Duration     int    `json:"duration"` // seconds
+	Alarm        string `json:"alarm"`    // "", "start", "end" or "both"
+}
+
+// Where an imported recipe came from, so a re-import can tell what it already has.
+type Source struct {
+	Type         string   `json:"type,omitempty"`
+	UID          string   `json:"uid,omitempty"`
+	URL          string   `json:"url,omitempty"`
+	Contributors []string `json:"contributors,omitempty"`
 }
 
 type Recipe struct {
@@ -36,6 +47,8 @@ type Recipe struct {
 	Ingredients []string `json:"ingredients"`
 	Lanes       []Lane   `json:"lanes"`
 	Steps       []Step   `json:"steps"`
+	Source      *Source  `json:"source,omitempty"`
+	Starred     bool     `json:"starred,omitempty"`
 }
 
 func (r *Recipe) total() int {
@@ -53,12 +66,30 @@ type Summary struct {
 	Name         string `json:"name"`
 	Description  string `json:"description"`
 	TotalSeconds int    `json:"totalSeconds"`
+	Starred      bool   `json:"starred"`
 }
 
 // Store keeps one JSON file per recipe under dir; the filename is the id.
+// Listing parses every file, so summaries are cached and only rebuilt when the
+// directory's file count or newest timestamp changes — including for edits made
+// outside the server.
 type Store struct {
 	dir string
 	mu  sync.RWMutex
+
+	cacheMu    sync.Mutex
+	cache      []indexed
+	cacheCount int
+	cacheStamp time.Time
+}
+
+// A cached summary plus the lowercased text the search filters against. The
+// ingredient text is kept separate so ingredient search can't match a word that
+// only appears in the title.
+type indexed struct {
+	Summary
+	hay  string
+	ings string
 }
 
 var idRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
@@ -126,6 +157,57 @@ func (st *Store) put(r *Recipe) error {
 	return st.write(r)
 }
 
+// setStar flips one recipe's star. The cached index is patched in place rather
+// than invalidated, so starring stays instant on a store of thousands.
+func (st *Store) setStar(id string, on bool) (*Recipe, error) {
+	st.mu.Lock()
+	rec, err := st.read(id)
+	if err == nil {
+		rec.Starred = on
+		err = st.write(rec)
+	}
+	st.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+
+	st.cacheMu.Lock()
+	defer st.cacheMu.Unlock()
+	if st.cache != nil {
+		for i := range st.cache {
+			if st.cache[i].ID == id {
+				st.cache[i].Starred = on
+				break
+			}
+		}
+		// adopt the directory's new state so the write we just made doesn't
+		// look like an outside edit and trigger a full reparse
+		if count, newest, err := st.dirState(); err == nil {
+			st.cacheCount, st.cacheStamp = count, newest
+		}
+	}
+	return rec, nil
+}
+
+func (st *Store) dirState() (int, time.Time, error) {
+	entries, err := os.ReadDir(st.dir)
+	if err != nil {
+		return 0, time.Time{}, err
+	}
+	count := 0
+	var newest time.Time
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
+			continue
+		}
+		count++
+		if info, err := e.Info(); err == nil && info.ModTime().After(newest) {
+			newest = info.ModTime()
+		}
+	}
+	return count, newest, nil
+}
+
 // create assigns a unique slug id derived from the recipe name.
 func (st *Store) create(r *Recipe) error {
 	st.mu.Lock()
@@ -154,6 +236,57 @@ func (st *Store) delete(id string) error {
 		return err
 	}
 	return os.Remove(p)
+}
+
+// summaries returns every recipe's summary, rebuilding the cache only when the
+// directory has changed.
+func (st *Store) summaries() ([]indexed, error) {
+	count, newest, err := st.dirState()
+	if err != nil {
+		return nil, err
+	}
+
+	st.cacheMu.Lock()
+	defer st.cacheMu.Unlock()
+	if st.cache != nil && st.cacheCount == count && st.cacheStamp.Equal(newest) {
+		return st.cache, nil
+	}
+
+	recipes, err := st.list()
+	if err != nil {
+		return nil, err
+	}
+	sums := make([]indexed, 0, len(recipes))
+	for _, r := range recipes {
+		ings := strings.ToLower(strings.Join(r.Ingredients, "\n"))
+		sums = append(sums, indexed{
+			Summary: Summary{
+				ID: r.ID, Name: r.Name, Description: r.Description,
+				TotalSeconds: r.total(), Starred: r.Starred,
+			},
+			hay:  strings.ToLower(r.Name + "\n" + r.Description),
+			ings: ings,
+		})
+	}
+	sort.Slice(sums, func(i, j int) bool { return sums[i].Name < sums[j].Name })
+	st.cache, st.cacheCount, st.cacheStamp = sums, count, newest
+	log.Printf("recipe index rebuilt: %d recipes", len(sums))
+	return sums, nil
+}
+
+// The Guardian ids already imported, so a sync knows what to skip.
+func (st *Store) guardianUIDs() (map[string]bool, error) {
+	recipes, err := st.list()
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]bool, len(recipes))
+	for _, r := range recipes {
+		if r.Source != nil && r.Source.UID != "" {
+			out[r.Source.UID] = true
+		}
+	}
+	return out, nil
 }
 
 func (st *Store) list() ([]*Recipe, error) {
@@ -229,23 +362,104 @@ func decodeRecipe(w http.ResponseWriter, r *http.Request) (*Recipe, bool) {
 func apiHandler(st *Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/recipes"), "/")
-		switch {
-		case id == "" && r.Method == http.MethodGet:
-			recipes, err := st.list()
+
+		// /api/recipes/{id}/star — mark a recipe for the week ahead
+		if rest, ok := strings.CutSuffix(id, "/star"); ok {
+			if r.Method != http.MethodPost {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			on := true
+			if v := r.URL.Query().Get("on"); v != "" {
+				on = v == "1" || strings.EqualFold(v, "true")
+			}
+			rec, err := st.setStar(rest, on)
 			if err != nil {
 				httpError(w, err)
 				return
 			}
-			q := strings.ToLower(r.URL.Query().Get("q"))
+			writeJSON(w, http.StatusOK, map[string]any{"id": rec.ID, "starred": rec.Starred})
+			return
+		}
+
+		// /api/recipes/{id}/source — the recipe as originally published
+		if rest, ok := strings.CutSuffix(id, "/source"); ok {
+			if r.Method != http.MethodGet {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			rec, err := st.get(rest)
+			if err != nil {
+				httpError(w, err)
+				return
+			}
+			if rec.Source == nil || rec.Source.Type != "guardian" || rec.Source.UID == "" {
+				http.Error(w, "no original held for this recipe", http.StatusNotFound)
+				return
+			}
+			src, err := guardianSource(rec.Source.UID)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusNotFound)
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{
+				"title": src.Title, "description": src.Description,
+				"contributors": src.Contributors, "serves": src.Serves,
+				"timings": src.Timings, "ingredients": src.Ingredients,
+				"instructions": src.Instructions, "url": rec.Source.URL,
+			})
+			return
+		}
+
+		switch {
+		case id == "" && r.Method == http.MethodGet:
+			all, err := st.summaries()
+			if err != nil {
+				httpError(w, err)
+				return
+			}
+			q := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("q")))
+			// ?ing=chicken,lemon or repeated ?ing= — every term must appear
+			var ings []string
+			for _, v := range r.URL.Query()["ing"] {
+				for _, part := range strings.Split(v, ",") {
+					if p := strings.ToLower(strings.TrimSpace(part)); p != "" {
+						ings = append(ings, p)
+					}
+				}
+			}
+
+			starredOnly := r.URL.Query().Get("starred") == "1"
+
 			sums := []Summary{}
-			for _, rec := range recipes {
-				if q != "" && !strings.Contains(strings.ToLower(rec.Name), q) &&
-					!strings.Contains(strings.ToLower(rec.Description), q) {
+			for _, s := range all {
+				if starredOnly && !s.Starred {
 					continue
 				}
-				sums = append(sums, Summary{rec.ID, rec.Name, rec.Description, rec.total()})
+				if q != "" && !strings.Contains(s.hay, q) && !strings.Contains(s.ings, q) {
+					continue
+				}
+				missing := false
+				for _, want := range ings {
+					if !strings.Contains(s.ings, want) {
+						missing = true
+						break
+					}
+				}
+				if missing {
+					continue
+				}
+				sums = append(sums, s.Summary)
 			}
-			sort.Slice(sums, func(i, j int) bool { return sums[i].Name < sums[j].Name })
+			// a huge store would otherwise ship megabytes to the browser
+			limit := 500
+			if v := r.URL.Query().Get("limit"); v != "" {
+				fmt.Sscanf(v, "%d", &limit)
+			}
+			w.Header().Set("X-Total-Count", fmt.Sprint(len(sums)))
+			if limit > 0 && len(sums) > limit {
+				sums = sums[:limit]
+			}
 			writeJSON(w, http.StatusOK, sums)
 		case id == "" && r.Method == http.MethodPost:
 			rec, ok := decodeRecipe(w, r)
@@ -461,10 +675,18 @@ func mealsHandler(st *MealStore) http.HandlerFunc {
 	}
 }
 
+func noCache(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-cache")
+		h.ServeHTTP(w, r)
+	})
+}
+
 func main() {
 	addr := flag.String("addr", ":8080", "listen address")
 	dataDir := flag.String("data", "data", "recipe storage directory")
 	staticDir := flag.String("static", "static", "static files directory")
+	importGuardian := flag.Bool("import-guardian", false, "import every Guardian recipe, then exit")
 	flag.Parse()
 
 	if err := os.MkdirAll(*dataDir, 0755); err != nil {
@@ -477,13 +699,47 @@ func main() {
 	st := &Store{dir: *dataDir}
 	ms := &MealStore{dir: mealsDir}
 
+	if *importGuardian {
+		res, err := syncGuardian(st, 0)
+		if err != nil {
+			log.Fatal(err)
+		}
+		log.Printf("imported %d Guardian recipes (%d already held, %d failed) in %s",
+			res.Added, res.Already, res.Failed, res.Took)
+		return
+	}
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/recipes", apiHandler(st))
 	mux.HandleFunc("/api/recipes/", apiHandler(st))
+	mux.HandleFunc("/api/guardian/sync", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			writeJSON(w, http.StatusOK, syncStatus())
+		case http.MethodPost:
+			limit := 500
+			fmt.Sscanf(r.URL.Query().Get("limit"), "%d", &limit)
+			writeJSON(w, http.StatusOK, startSyncGuardian(st, limit))
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
 	mux.HandleFunc("/api/meals", mealsHandler(ms))
 	mux.HandleFunc("/api/meals/", mealsHandler(ms))
-	mux.Handle("/", http.FileServer(http.Dir(*staticDir)))
+	// without this browsers apply heuristic freshness and can sit on a stale
+	// script for hours; "no-cache" still allows 304s, it just forces a revalidate
+	mux.Handle("/", noCache(http.FileServer(http.Dir(*staticDir))))
 
-	log.Printf("teatime listening on %s", *addr)
-	log.Fatal(http.ListenAndServe(*addr, mux))
+	// Listen explicitly so the resolved address is logged. A bare ":8080" will
+	// silently fall back to IPv6-only if another process already holds the IPv4
+	// address, leaving the server reachable on [::1] but not 127.0.0.1.
+	ln, err := net.Listen("tcp", *addr)
+	if err != nil {
+		log.Fatalf("cannot listen on %s: %v", *addr, err)
+	}
+	log.Printf("teatime listening on %s (data %s)", ln.Addr(), *dataDir)
+	if tcp, ok := ln.Addr().(*net.TCPAddr); ok && tcp.IP.To4() == nil && !tcp.IP.IsUnspecified() {
+		log.Printf("warning: bound IPv6 only — 127.0.0.1:%d will not reach this server", tcp.Port)
+	}
+	log.Fatal(http.Serve(ln, mux))
 }

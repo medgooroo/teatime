@@ -10,10 +10,19 @@
 <header class="topbar">
   <a class="brand" href="/">teatime</a>
   <span class="spacer"></span>
+  <button id="syncBtn">Check for new recipes</button>
   <a href="editor.html"><button class="primary">New recipe</button></a>
 </header>
 <main class="home">
-  <input id="search" type="search" placeholder="Search recipes and meals" autofocus>
+  <div class="searchbar">
+    <input id="search" type="search" placeholder="Search recipes and meals" autofocus>
+    <input id="ingSearch" type="search" placeholder="Ingredients, comma separated — chicken, lemon, thyme">
+  </div>
+  <section id="syncPanel" hidden></section>
+  <section id="starred" hidden>
+    <h2>This week</h2>
+    <div id="starredList" class="grid"></div>
+  </section>
   <section id="meal" hidden>
     <h2>Meal</h2>
     <ul id="mealList"></ul>
@@ -26,11 +35,14 @@
   </section>
   <section id="mealsSaved" hidden>
     <h2>Saved meals</h2>
-    <ul id="mealsList" class="cards"></ul>
+    <div id="mealsList" class="grid"></div>
   </section>
   <h2 id="recipesHeading">Recipes</h2>
-  <ul id="results" class="cards"></ul>
+  <div id="results" class="grid"></div>
 </main>
+<div id="detail" hidden>
+  <article id="detailCard"></article>
+</div>
 <script src="common.js"></script>
 <script src="index.js"></script>
 </body>

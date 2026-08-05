@@ -54,6 +54,7 @@ function combine() {
         instructions: s.instructions,
         start: s.start + offset,
         duration: s.duration,
+        alarm: s.alarm || '',
       });
     }
   }
@@ -69,6 +70,78 @@ function fitRows() {
 // and the timeline stretches to fill the window width
 function fitWidth() {
   pxPerMin = clamp((timeline.clientWidth - 20) / (contentSeconds() / 60), 2, 80);
+}
+
+/* ---------- alarms ---------- */
+
+let audioCtx = null;
+let lastEl = null;   // elapsed at previous tick; alarms fire on crossing
+
+// must be called from a user gesture or iOS keeps the context suspended
+function unlockAudio() {
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+  } catch { /* no audio available */ }
+}
+
+function beep(times) {
+  if (!audioCtx) return;
+  for (let i = 0; i < times; i++) {
+    const t = audioCtx.currentTime + i * 0.45;
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.frequency.value = 880;
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(0.35, t + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.32);
+    osc.connect(gain).connect(audioCtx.destination);
+    osc.start(t);
+    osc.stop(t + 0.35);
+  }
+}
+
+function alarmTimes(step) {
+  const out = [];
+  if (step.alarm === 'start' || step.alarm === 'both') out.push([step.start, 'start']);
+  if (step.alarm === 'end' || step.alarm === 'both') out.push([step.start + step.duration, 'end']);
+  return out;
+}
+
+function checkAlarms(el) {
+  if (lastEl === null) { lastEl = el; return; }   // first tick: no history, fire nothing
+  const due = [];
+  for (const step of steps) {
+    if (!step.alarm || doneSet.has(step.key)) continue;
+    for (const [at, kind] of alarmTimes(step)) {
+      if (at > lastEl && at <= el) due.push({ step, kind });
+    }
+  }
+  lastEl = el;
+  if (!due.length) return;
+  beep(due.some(d => d.kind === 'end') ? 3 : 2);
+  showAlarm(due);
+  if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+}
+
+function showAlarm(due) {
+  const bar = $('#alarmbar');
+  bar.textContent = '';
+  for (const { step, kind } of due) {
+    const row = document.createElement('div');
+    row.className = 'alarm-row';
+    const what = document.createElement('strong');
+    what.textContent = step.name;
+    const when = document.createElement('span');
+    when.textContent = kind === 'start' ? ' — start now' : ' — finished';
+    row.append(what, when);
+    bar.append(row);
+  }
+  const dismiss = document.createElement('button');
+  dismiss.textContent = 'Dismiss';
+  dismiss.addEventListener('click', () => { bar.hidden = true; });
+  bar.append(dismiss);
+  bar.hidden = false;
 }
 
 /* ---------- views: ingredients before the cook, timeline during ---------- */
@@ -192,7 +265,7 @@ function render() {
   blocks = new Map();
   for (const step of steps) {
     const el = document.createElement('div');
-    el.className = 'step clickable';
+    el.className = 'step clickable' + (step.alarm ? ' has-alarm' : '');
     el.dataset.id = step.key;
     const li = laneIdx(step.laneKey);
     el.style.left = secToPx(step.start) + 'px';
@@ -255,6 +328,7 @@ function update() {
   }
 
   if (state === 'running') {
+    checkAlarms(el);
     const vis = timeline.scrollLeft, w = timeline.clientWidth;
     if (x < vis + 20 || x > vis + w - 80) timeline.scrollLeft = Math.max(0, x - w * 0.25);
   }
@@ -340,10 +414,13 @@ function toggleDone(key) {
 /* ---------- controls ---------- */
 
 function start() {
+  unlockAudio();
   startTs = Date.now();
   localStorage.setItem(storageKey(), String(startTs));
   doneSet.clear();
   localStorage.removeItem(doneKey());
+  lastEl = 0;
+  $('#alarmbar').hidden = true;
   update();
 }
 

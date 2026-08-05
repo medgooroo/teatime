@@ -1,4 +1,7 @@
 teatime
 teatime.exe
+teatime.exe~
 *.tmp
 .teatime-remote
+guardian-cache/
+data/

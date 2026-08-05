@@ -62,6 +62,13 @@ All three lanes end at 40m. The onions caramelise (passive) while the
 potatoes are peeled; the sausages need only turning while the mash and
 gravy finish. Full version: `data/bangers-and-mash.json`.
 
+## Fetching source pages
+
+Several recipe sites don't serve their recipe in the initial HTML, and some
+block automated fetchers. Per-site methods, endpoints and quirks are in
+[FETCHING.md](FETCHING.md). Note that stated total times are marketing figures
+and usually assume overlaps a single cook can't perform — trust the step times.
+
 ## Publishing to the remote instance
 
 The deployed site sits behind Caddy basic auth. Connection details live in
