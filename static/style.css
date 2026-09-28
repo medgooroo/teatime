@@ -223,6 +223,11 @@ button.starred { border-color: var(--star); color: var(--star); }
 }
 .card-flag { color: var(--accent); }
 
+/* manage page: cards that hold buttons rather than being one */
+.card.static { cursor: default; }
+.card.static:hover { border-color: var(--border); }
+.card-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 2px; }
+
 /* detail overlay */
 #detail {
   position: fixed;

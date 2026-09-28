@@ -17,7 +17,6 @@ let listParams = '';      // query string of the current list, for paging
 let listTotal = 0;        // matches on the server
 let listGen = 0;          // stale-response guard
 let loadingMore = false;
-let hiddenShown = false;
 
 try {
   meal = JSON.parse(localStorage.getItem('teatime.meal') || '[]');
@@ -259,16 +258,6 @@ async function openRecipe(id) {
   card.append(actionRow(r.hidden ? [
     { label: 'Bring back', cls: 'primary', onClick: () => setHidden(false) },
     { label: 'Edit', href: 'editor.html?id=' + encodeURIComponent(r.id) },
-    {
-      label: 'Delete forever', cls: 'danger',
-      onClick: async () => {
-        if (!confirm(`Permanently delete "${r.name}"? This cannot be undone.`)) return;
-        await fetch('/api/recipes/' + encodeURIComponent(r.id), { method: 'DELETE' });
-        summaries.delete(r.id);
-        closeDetail();
-        refresh();
-      },
-    },
   ] : [
     { label: 'Cook', cls: 'primary', href: 'cook.html?id=' + encodeURIComponent(r.id) },
     {
@@ -351,16 +340,6 @@ function openMeal(m) {
   };
   card.append(actionRow(m.hidden ? [
     { label: 'Bring back', cls: 'primary', onClick: () => setMealHidden(false) },
-    {
-      label: 'Delete forever', cls: 'danger',
-      onClick: async () => {
-        if (!confirm(`Permanently delete meal "${m.name}"? This cannot be undone.`)) return;
-        await fetch('/api/meals/' + encodeURIComponent(m.id), { method: 'DELETE' });
-        closeDetail();
-        await fetchMeals();
-        refresh();
-      },
-    },
   ] : [
     { label: 'Cook', cls: 'primary', href: 'cook.html?meal=' + encodeURIComponent(m.id) },
     {
@@ -485,15 +464,10 @@ async function refresh() {
     ? `Recipes matching ${bits.join(', ')} (${listTotal})`
     : `Recipes (${listTotal})`;
 
-  // while searching, everything above and below the results steps aside
-  $('#backup').hidden = searching;
-  $('#hiddenSec').hidden = searching;
-
   renderRecipes(list);
   renderMeal();
   renderMeals(q);
   renderStarred();
-  if (hiddenShown && !searching) renderHidden();
 }
 
 /* ---------- continuous scroll ---------- */
@@ -524,49 +498,6 @@ new IntersectionObserver(entries => {
   if (entries.some(e => e.isIntersecting)) loadMore();
 }, { rootMargin: '600px' }).observe($('#sentinel'));
 
-/* ---------- hidden items ---------- */
-
-async function renderHidden() {
-  const list = $('#hiddenList');
-  const res = await fetch('/api/recipes?hidden=1&limit=0');
-  const hid = res.ok ? await res.json() : [];
-  for (const r of hid) summaries.set(r.id, r);
-  const hiddenMeals = meals.filter(m => m.hidden);
-  list.textContent = '';
-  if (!hid.length && !hiddenMeals.length) {
-    const p = document.createElement('p');
-    p.className = 'empty';
-    p.textContent = 'Nothing is hidden.';
-    list.append(p);
-    return;
-  }
-  for (const m of hiddenMeals) {
-    list.append(card({
-      title: m.name,
-      sub: m.recipeIds.map(id => summaries.get(id)?.name || id).join(', '),
-      time: '',
-      flag: 'hidden meal',
-      onClick: () => openMeal(m),
-    }));
-  }
-  for (const r of hid) {
-    const { text } = splitNotes(r.description);
-    list.append(card({
-      title: r.name,
-      sub: text,
-      time: fmtDur(r.totalSeconds),
-      flag: 'hidden',
-      onClick: () => openRecipe(r.id),
-    }));
-  }
-}
-
-$('#hiddenToggle').addEventListener('click', () => {
-  hiddenShown = !hiddenShown;
-  $('#hiddenToggle').textContent = hiddenShown ? 'Put the list away' : 'Show hidden items';
-  $('#hiddenList').hidden = !hiddenShown;
-  if (hiddenShown) renderHidden();
-});
 
 for (const el of [searchBox, ingBox]) {
   el.addEventListener('input', () => {
@@ -590,12 +521,6 @@ function renderSync(s) {
   head.append(stage);
 
   if (!s.running) {
-    if (s.removed) {
-      const undo = document.createElement('button');
-      undo.textContent = `Bring back ${s.removed} deleted`;
-      undo.addEventListener('click', () => runSync('?forget=1'));
-      head.append(undo);
-    }
     const close = document.createElement('button');
     close.textContent = 'Dismiss';
     close.addEventListener('click', () => { syncPanel.hidden = true; });
@@ -620,7 +545,7 @@ function renderSync(s) {
     if (s.toFetch) parts.push(`${s.toFetch.toLocaleString()} new`);
     if (s.failed) parts.push(`${s.failed} could not be read`);
     if (s.unavailable) parts.push(`${s.unavailable} unavailable, skipped`);
-    if (s.removed) parts.push(`${s.removed} you deleted, left out`);
+    if (s.restored) parts.push(`${s.restored} once deleted, brought back hidden`);
     line.textContent = parts.join(' · ');
     syncPanel.append(line);
   }
@@ -678,71 +603,5 @@ async function runSync(query = '') {
 }
 
 $('#syncBtn').addEventListener('click', () => runSync());
-
-/* ---------- backup and restore ---------- */
-
-const backupStatus = $('#backupStatus');
-
-$('#backupBtn').addEventListener('click', async () => {
-  const btn = $('#backupBtn');
-  btn.disabled = true;
-  backupStatus.textContent = 'Building the archive…';
-  try {
-    const res = await fetch('/api/backup');
-    if (!res.ok) throw new Error(await res.text());
-    const count = res.headers.get('X-Recipe-Count');
-    const blob = await res.blob();
-    const name = (res.headers.get('Content-Disposition') || '').match(/filename="([^"]+)"/);
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = name ? name[1] : 'teatime-backup.tar.gz';
-    a.click();
-    URL.revokeObjectURL(a.href);
-    const mb = (blob.size / 1048576).toFixed(1);
-    backupStatus.textContent = `Saved ${count} files, ${mb} MB.`;
-  } catch (e) {
-    backupStatus.textContent = 'Backup failed: ' + e.message;
-  } finally {
-    btn.disabled = false;
-  }
-});
-
-$('#restoreFile').addEventListener('change', () => {
-  $('#restoreBtn').disabled = !$('#restoreFile').files.length;
-  backupStatus.textContent = '';
-});
-
-$('#restoreBtn').addEventListener('click', async () => {
-  const file = $('#restoreFile').files[0];
-  if (!file) return;
-  const replace = $('#restoreReplace').checked;
-
-  const warning = replace
-    ? `Restore from "${file.name}", DELETING every recipe not in it?`
-    : `Restore from "${file.name}"? Recipes in the backup will overwrite what is here; anything else is left alone.`;
-  if (!confirm(warning)) return;
-
-  const btn = $('#restoreBtn');
-  btn.disabled = true;
-  backupStatus.textContent = 'Restoring…';
-  try {
-    const res = await fetch('/api/restore?mode=' + (replace ? 'replace' : 'merge'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/gzip' },
-      body: file,
-    });
-    if (!res.ok) throw new Error(await res.text());
-    const r = await res.json();
-    const bits = [`${r.restored} restored`];
-    if (r.removed) bits.push(`${r.removed} removed`);
-    if (r.skipped) bits.push(`${r.skipped} skipped`);
-    backupStatus.textContent = bits.join(', ') + '.';
-    await refresh();
-  } catch (e) {
-    backupStatus.textContent = 'Restore failed: ' + e.message;
-  } finally {
-    btn.disabled = false;
-  }
-});
 
 fetchMeals().then(refresh);

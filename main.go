@@ -771,11 +771,6 @@ func main() {
 		case http.MethodGet:
 			writeJSON(w, http.StatusOK, syncStatus())
 		case http.MethodPost:
-			// ?forget=1 clears the record of what you deleted, so the next check
-			// brings those recipes back
-			if r.URL.Query().Get("forget") == "1" {
-				log.Printf("guardian: forgetting %d deletions", forgetGuardianDeletions(st))
-			}
 			limit := 500
 			fmt.Sscanf(r.URL.Query().Get("limit"), "%d", &limit)
 			writeJSON(w, http.StatusOK, startSyncGuardian(st, limit))

@@ -33,12 +33,13 @@ It also backs `GET /api/recipes/{id}/source`, which returns the recipe as
 published — the editor shows it in an **Original** panel so you can rework the
 timeline against the real method.
 
-**Deleting an imported recipe makes it stay deleted.** Its Guardian id is
-recorded in `data/.guardian-deleted.json` and skipped by every later check,
-which reports how many it left out. To undo, press "Bring back N deleted" in
-that report, or `POST /api/guardian/sync?forget=1`. Recipes the Guardian
-indexes but won't serve are tracked the same way in
-`data/.guardian-unavailable.json`.
+**Hiding is how you get rid of a recipe.** A hidden recipe keeps its file (and
+Guardian id) on disk, so it vanishes from browsing and search without the next
+check re-importing it; bring it back any time from the Manage page. There is no
+delete in the UI. Recipes deleted over the API (or before hiding existed, via
+`data/.guardian-deleted.json`) are re-imported hidden by the next check and
+their ledger entry dropped. Recipes the Guardian indexes but won't serve are
+tracked in `data/.guardian-unavailable.json`.
 
 Conversion is mechanical: step durations are read out of the prose where stated
 ("simmer for 25 minutes"), unattended stretches get an end alarm, and a step
@@ -54,9 +55,14 @@ ingredients; the second takes a comma-separated ingredient list and returns
 only recipes containing **all** of them. Matching is substring-based, so
 `chicken` also matches `chicken stock`.
 
+## Manage
+
+The **Manage** page (top bar on the home page) holds the housekeeping: hidden
+recipes and meals with per-item restore, and backup/restore.
+
 ## Backup and restore
 
-At the bottom of the home page. **Download a backup** gives you the whole data
+On the Manage page. **Download a backup** gives you the whole data
 directory — recipes, saved meals, stars, Guardian bookkeeping — as one
 `.tar.gz`, around 7MB for 7,900 recipes. It is an ordinary tar, so it can be
 opened by hand.
@@ -110,10 +116,12 @@ To convert a traditional prose recipe into this format, see
 
 ## API
 
-| Method | Path              | Purpose                           |
-|--------|-------------------|-----------------------------------|
-| GET    | /api/recipes      | List summaries, `?q=` to search   |
-| POST   | /api/recipes      | Create, id generated from name    |
-| GET    | /api/recipes/{id} | Fetch full recipe                 |
-| PUT    | /api/recipes/{id} | Save                              |
-| DELETE | /api/recipes/{id} | Delete                            |
+| Method | Path                      | Purpose                                        |
+|--------|---------------------------|------------------------------------------------|
+| GET    | /api/recipes              | List summaries; `?q=` search, `?ing=` filter, `?hidden=1`, `?starred=1`, `?shuffle=<seed>`, `?limit=`/`?offset=` paging |
+| POST   | /api/recipes              | Create, id generated from name                 |
+| GET    | /api/recipes/{id}         | Fetch full recipe                              |
+| PUT    | /api/recipes/{id}         | Save                                           |
+| DELETE | /api/recipes/{id}         | Delete the file (an import returns hidden on the next check) |
+| POST   | /api/recipes/{id}/star    | `?on=1` star, `?on=0` unstar                   |
+| POST   | /api/recipes/{id}/hide    | `?on=1` hide, `?on=0` bring back               |

@@ -11,6 +11,7 @@
   <a class="brand" href="/">teatime</a>
   <span class="spacer"></span>
   <button id="syncBtn">Check for new recipes</button>
+  <a href="manage.html"><button>Manage</button></a>
   <a href="editor.html"><button class="primary">New recipe</button></a>
 </header>
 <main class="home">
@@ -41,32 +42,6 @@
   <div id="results" class="grid"></div>
   <div id="sentinel"></div>
   <p id="moreNote" class="empty" hidden>Loading more…</p>
-
-  <section id="hiddenSec">
-    <h2>Hidden</h2>
-    <div class="backup-row">
-      <button id="hiddenToggle">Show hidden items</button>
-      <span class="backup-note">Hidden recipes and meals stay out of the way until you bring them back.</span>
-    </div>
-    <div id="hiddenList" class="grid" hidden></div>
-  </section>
-
-  <section id="backup">
-    <h2>Backup</h2>
-    <div class="backup-row">
-      <button id="backupBtn">Download a backup</button>
-      <span class="backup-note">Every recipe, saved meal and setting, as one file.</span>
-    </div>
-    <div class="backup-row">
-      <input id="restoreFile" type="file" accept=".gz,.tgz,application/gzip">
-      <label class="backup-mode">
-        <input type="checkbox" id="restoreReplace">
-        Replace everything (delete recipes not in the backup)
-      </label>
-      <button id="restoreBtn" disabled>Restore</button>
-    </div>
-    <p id="backupStatus" class="backup-note"></p>
-  </section>
 </main>
 <div id="detail" hidden>
   <article id="detailCard"></article>

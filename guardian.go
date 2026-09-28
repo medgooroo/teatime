@@ -367,25 +367,49 @@ func saveIDSet(path string, m map[string]bool) {
 	os.WriteFile(path, b, 0644)
 }
 
-// Called when a recipe is deleted, so a later check leaves it alone.
+// The deleted ledger maps uid -> recipe name, so the Hidden page can list what
+// was removed by name. Older deployments wrote a bare array of uids; those load
+// with empty names.
+func loadDeleted(path string) map[string]string {
+	out := map[string]string{}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return out
+	}
+	if json.Unmarshal(b, &out) == nil {
+		return out
+	}
+	var ids []string
+	if json.Unmarshal(b, &ids) == nil {
+		for _, id := range ids {
+			out[id] = ""
+		}
+	}
+	return out
+}
+
+func saveDeleted(path string, m map[string]string) {
+	if len(m) == 0 {
+		os.Remove(path)
+		return
+	}
+	b, _ := json.MarshalIndent(m, "", " ")
+	os.WriteFile(path, b, 0644)
+}
+
+// Called when a recipe is deleted over the API, so the next check brings it
+// back hidden rather than in plain sight.
 func recordGuardianDeletion(st *Store, rec *Recipe) {
 	if rec == nil || rec.Source == nil || rec.Source.Type != "guardian" || rec.Source.UID == "" {
 		return
 	}
-	set := loadIDSet(deletedPath(st))
-	if set[rec.Source.UID] {
+	m := loadDeleted(deletedPath(st))
+	if _, ok := m[rec.Source.UID]; ok {
 		return
 	}
-	set[rec.Source.UID] = true
-	saveIDSet(deletedPath(st), set)
-	log.Printf("guardian: %q deleted, will not be re-imported", rec.Name)
-}
-
-// Clears the deleted list so the next check pulls them back in.
-func forgetGuardianDeletions(st *Store) int {
-	n := len(loadIDSet(deletedPath(st)))
-	os.Remove(deletedPath(st))
-	return n
+	m[rec.Source.UID] = rec.Name
+	saveDeleted(deletedPath(st), m)
+	log.Printf("guardian: %q deleted, will return hidden on the next check", rec.Name)
 }
 
 // Progress of an import, polled by the browser while it runs.
@@ -398,7 +422,7 @@ type SyncState struct {
 	Added       int    `json:"added"`
 	Failed      int    `json:"failed"`
 	Unavailable int    `json:"unavailable"`
-	Removed     int    `json:"removed"`
+	Restored    int    `json:"restored"` // previously deleted, brought back hidden
 	Current     string `json:"current"`
 	Names   []string `json:"names,omitempty"`
 	Partial bool     `json:"partial,omitempty"`
@@ -471,16 +495,14 @@ func runSyncGuardian(st *Store, limit int) {
 	}
 
 	dead := loadIDSet(unavailablePath(st))
-	deleted := loadIDSet(deletedPath(st))
+	// Recipes deleted before hiding existed: imported like any other below,
+	// but arrive hidden, and their ledger entry is dropped once handled.
+	deleted := loadDeleted(deletedPath(st))
 	var todo []gEntry
-	already, unavailable, removed := 0, 0, 0
+	already, unavailable := 0, 0
 	for _, e := range idx.Recipes {
 		if have[e.RecipeUID] {
 			already++
-			continue
-		}
-		if deleted[e.RecipeUID] {
-			removed++ // you deleted this one; leave it alone
 			continue
 		}
 		if dead[e.RecipeUID] {
@@ -489,7 +511,7 @@ func runSyncGuardian(st *Store, limit int) {
 		}
 		todo = append(todo, e)
 	}
-	setSync(func(s *SyncState) { s.Unavailable, s.Removed = unavailable, removed })
+	setSync(func(s *SyncState) { s.Unavailable = unavailable })
 	partial := false
 	if limit > 0 && len(todo) > limit {
 		todo, partial = todo[:limit], true
@@ -502,21 +524,34 @@ func runSyncGuardian(st *Store, limit int) {
 		}
 	})
 
-	newlyDead := false
+	newlyDead, ledgerDirty := false, false
 	for _, e := range todo {
+		_, wasDeleted := deleted[e.RecipeUID]
 		gr, err := fetchGuardianRecipe(e)
 		if err != nil || len(gr.Instructions) == 0 || strings.TrimSpace(gr.Title) == "" {
 			setSync(func(s *SyncState) { s.Failed++ })
 			dead[e.RecipeUID], newlyDead = true, true
+			if wasDeleted { // the dead list covers it from here
+				delete(deleted, e.RecipeUID)
+				ledgerDirty = true
+			}
 			continue
 		}
 		rec := convertGuardian(gr, e.RecipeUID)
+		rec.Hidden = wasDeleted
 		if err := st.create(rec); err != nil {
 			setSync(func(s *SyncState) { s.Failed++ })
 			continue
 		}
+		if wasDeleted {
+			delete(deleted, e.RecipeUID)
+			ledgerDirty = true
+		}
 		setSync(func(s *SyncState) {
 			s.Added++
+			if wasDeleted {
+				s.Restored++
+			}
 			s.Current = rec.Name
 			if len(s.Names) < 100 {
 				s.Names = append(s.Names, rec.Name)
@@ -526,6 +561,9 @@ func runSyncGuardian(st *Store, limit int) {
 
 	if newlyDead {
 		saveIDSet(unavailablePath(st), dead)
+	}
+	if ledgerDirty {
+		saveDeleted(deletedPath(st), deleted)
 	}
 	finish()
 	s := syncStatus()

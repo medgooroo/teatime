@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Manage — teatime</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="/">teatime</a>
+  <span class="title">Manage</span>
+  <span class="spacer"></span>
+  <a href="/"><button>Back to recipes</button></a>
+</header>
+<main class="home">
+  <section id="hRecipes" hidden>
+    <h2>Hidden recipes</h2>
+    <div id="hRecipesList" class="grid"></div>
+  </section>
+  <section id="hMeals" hidden>
+    <h2>Hidden meals</h2>
+    <div id="hMealsList" class="grid"></div>
+  </section>
+  <p id="noneHidden" class="empty" hidden>Nothing is hidden.</p>
+
+  <section id="backup">
+    <h2>Backup</h2>
+    <div class="backup-row">
+      <button id="backupBtn">Download a backup</button>
+      <span class="backup-note">Every recipe, saved meal and setting, as one file.</span>
+    </div>
+    <div class="backup-row">
+      <input id="restoreFile" type="file" accept=".gz,.tgz,application/gzip">
+      <label class="backup-mode">
+        <input type="checkbox" id="restoreReplace">
+        Replace everything (delete recipes not in the backup)
+      </label>
+      <button id="restoreBtn" disabled>Restore</button>
+    </div>
+    <p id="backupStatus" class="backup-note"></p>
+  </section>
+</main>
+<script src="common.js"></script>
+<script src="manage.js"></script>
+</body>
+</html>
