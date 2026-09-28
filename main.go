@@ -51,6 +51,7 @@ type Recipe struct {
 	Source      *Source  `json:"source,omitempty"`
 	Starred     bool     `json:"starred,omitempty"`
 	Hidden      bool     `json:"hidden,omitempty"`
+	Tidied      bool     `json:"tidied,omitempty"` // timeline reviewed by hand, not just converted
 }
 
 func (r *Recipe) total() int {
@@ -70,6 +71,7 @@ type Summary struct {
 	TotalSeconds int    `json:"totalSeconds"`
 	Starred      bool   `json:"starred"`
 	Hidden       bool   `json:"hidden,omitempty"`
+	Tidied       bool   `json:"tidied,omitempty"`
 }
 
 // Store keeps one JSON file per recipe under dir; the filename is the id.
@@ -280,6 +282,7 @@ func (st *Store) summaries() ([]indexed, error) {
 			Summary: Summary{
 				ID: r.ID, Name: r.Name, Description: r.Description,
 				TotalSeconds: r.total(), Starred: r.Starred, Hidden: r.Hidden,
+				Tidied: r.Tidied,
 			},
 			hay:  strings.ToLower(r.Name + "\n" + r.Description),
 			ings: ings,
@@ -458,6 +461,7 @@ func apiHandler(st *Store) http.HandlerFunc {
 
 			starredOnly := r.URL.Query().Get("starred") == "1"
 			hiddenOnly := r.URL.Query().Get("hidden") == "1"
+			tidied := r.URL.Query().Get("tidied") // "1" only tidied, "0" only untidied
 
 			sums := []Summary{}
 			for _, s := range all {
@@ -465,6 +469,9 @@ func apiHandler(st *Store) http.HandlerFunc {
 					continue
 				}
 				if starredOnly && !s.Starred {
+					continue
+				}
+				if tidied == "1" && !s.Tidied || tidied == "0" && s.Tidied {
 					continue
 				}
 				if q != "" && !strings.Contains(s.hay, q) && !strings.Contains(s.ings, q) {
