@@ -33,6 +33,41 @@ function fmtTimer(sec) {
   return h ? h + ':' + mm + ':' + ss : m + ':' + ss;
 }
 
+// clipboard with a fallback for non-secure contexts
+function copyText(text) {
+  if (navigator.clipboard?.writeText) return navigator.clipboard.writeText(text);
+  return new Promise((resolve, reject) => {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.append(ta);
+    ta.select();
+    const ok = document.execCommand('copy');
+    ta.remove();
+    ok ? resolve() : reject(new Error('copy not available'));
+  });
+}
+
+// a small "Copy" button that confirms, then resets its label
+function copyBtn(getText, label = 'Copy') {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'copy-btn';
+  b.textContent = label;
+  b.addEventListener('click', async e => {
+    e.stopPropagation();
+    try {
+      await copyText(getText());
+      b.textContent = 'Copied ✓';
+    } catch {
+      b.textContent = 'Copy failed';
+    }
+    setTimeout(() => { b.textContent = label; }, 1500);
+  });
+  return b;
+}
+
 // accepts "1h 10m", "90m", "45s", "1.5h" or a bare number of minutes
 function parseDur(str) {
   str = String(str).trim().toLowerCase();

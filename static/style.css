@@ -52,28 +52,37 @@ input, textarea {
 }
 input:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
 
-/* top bar */
+/* top bar; wraps into extra rows rather than pushing controls offscreen */
 .topbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
+  gap: 6px 10px;
   padding: 10px 16px;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
 }
+.topbar button { white-space: nowrap; }
 .topbar .brand {
   font-weight: 700;
   text-decoration: none;
   color: var(--accent);
   margin-right: 6px;
 }
-.topbar .title { font-weight: 600; }
+.topbar .title {
+  font-weight: 600;
+  min-width: 0;
+  flex: 0 1 auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .topbar .spacer { flex: 1; }
 .topbar #status { color: var(--muted); font-size: 13px; min-width: 110px; }
 .topbar #total { color: var(--muted); font-size: 13px; white-space: nowrap; }
 .topbar .clocks { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.25; }
 .topbar #wallClock { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
-.topbar #clock { font-variant-numeric: tabular-nums; color: var(--text); font-weight: 600; }
+.topbar #clock { font-variant-numeric: tabular-nums; color: var(--text); font-weight: 600; white-space: nowrap; }
 .topbar a { text-decoration: none; }
 
 /* home page */
@@ -141,6 +150,17 @@ input:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: 
   line-height: 1.5;
 }
 .empty { color: var(--muted); padding: 20px 0; }
+#sentinel { height: 1px; }
+
+/* small inline copy button beside a list heading */
+.copy-btn {
+  margin-left: 10px;
+  padding: 2px 10px;
+  font-size: 12px;
+  text-transform: none;
+  letter-spacing: normal;
+  vertical-align: middle;
+}
 
 /* recipe / meal cards */
 .grid {
@@ -216,6 +236,7 @@ button.starred { border-color: var(--star); color: var(--star); }
   overflow-y: auto;
 }
 #detailCard {
+  position: relative;
   width: min(100%, 640px);
   background: var(--surface);
   border: 1px solid var(--border);
@@ -223,6 +244,18 @@ button.starred { border-color: var(--star); color: var(--star); }
   padding: 24px;
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55);
 }
+.detail-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 24px;
+  line-height: 1;
+  padding: 4px 10px;
+}
+.detail-close:hover { color: var(--text); }
 #detailCard h1 { font-size: 24px; margin: 0 0 4px; }
 #detailCard h2 {
   font-size: 12px;
@@ -314,6 +347,16 @@ button.starred { border-color: var(--star); color: var(--star); }
 }
 .lane-name input:hover, .lane-name input:focus { border-color: var(--border); background: var(--surface); }
 .lane-name .lane-label { font-weight: 600; padding: 0 4px; }
+.lane-text { display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
+.lane-text .lane-label { padding: 0; line-height: 1.25; }
+.lane-text .lane-sub {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .lane-name button {
   padding: 2px 6px;
   border: none;
@@ -475,6 +518,8 @@ button.starred { border-color: var(--star); color: var(--star); }
   accent-color: var(--accent);
 }
 #ingredients input:checked + span { opacity: 0.4; text-decoration: line-through; }
+#ingredients label span { user-select: text; }
+#ingredients .ing-head { display: flex; align-items: baseline; gap: 6px; }
 #startBtn2 { display: block; margin: 26px 0; font-size: 20px; padding: 14px 36px; }
 
 /* ingredients: editor mode */
@@ -494,6 +539,37 @@ button.starred { border-color: var(--star); color: var(--star); }
 /* cook mode */
 .step.clickable { cursor: pointer; }
 .step.ticked { filter: grayscale(1); opacity: 0.45; }
+.step.paused { outline: 1px dashed rgba(255, 255, 255, 0.55); }
+
+/* pause */
+#pauseBtn.paused { border-color: var(--now); color: var(--now); }
+.lane-name.paused .lane-label { color: var(--now); }
+.lane-pause-badge { display: none; color: var(--now); font-size: 12px; margin-left: 4px; }
+.lane-name.paused .lane-pause-badge { display: inline; }
+#pausePick {
+  position: fixed;
+  inset: 0;
+  z-index: 55;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4vmin;
+}
+.pause-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 22px;
+  width: min(94vw, 420px);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.pause-card h2 { margin: 0 0 4px; font-size: 17px; }
+.pause-card .pause-note { color: var(--muted); font-size: 13px; margin: 0 0 4px; }
+.pause-card button { padding: 10px 14px; font-size: 15px; text-align: left; }
+.pause-card button.paused { border-color: var(--now); color: var(--now); }
 
 /* alarm banner */
 #alarmbar {
@@ -619,5 +695,31 @@ button.starred { border-color: var(--star); color: var(--star); }
   border-radius: 10px;
   z-index: 4;
   pointer-events: none;
+}
+
+/* phones: reclaim width for the timeline, tighten the chrome */
+@media (max-width: 700px) {
+  /* only where lane names are read-only; the editor's inputs need the room */
+  .cook-page { --lanes-w: 104px; }
+  .topbar { padding: 8px 10px; gap: 6px 8px; }
+  .topbar button { padding: 5px 10px; }
+  .topbar .brand { margin-right: 0; }
+  .topbar #total { display: none; }   /* the running clock already shows it */
+  .topbar #recipeName { width: 100%; flex: 1 1 160px; min-width: 0; }
+  .home { margin: 14px auto; }
+  .lane-name { padding: 0 6px; }
+  .lane-text .lane-label { font-size: 13px; white-space: normal; }
+  #detailCard { padding: 20px 16px; }
+  #panel { width: min(300px, 82vw); }
+  #sourcePanel { width: min(340px, 82vw); }
+}
+
+/* fat-finger insurance on touch screens */
+@media (pointer: coarse) {
+  .card-star { font-size: 24px; padding: 8px 12px; }
+  .detail-close { font-size: 28px; padding: 8px 14px; }
+  #mealList button { padding: 6px 14px; font-size: 20px; }
+  .lane-name button { padding: 6px 8px; font-size: 13px; }
+  .copy-btn { padding: 6px 14px; }
 }
 

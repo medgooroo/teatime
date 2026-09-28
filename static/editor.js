@@ -108,7 +108,7 @@ function renderRuler() {
   const width = secToPx(contentSeconds());
   ruler.style.width = width + 'px';
   const tickEvery = pxPerMin >= 6 ? 60 : 300;
-  const labelEvery = pxPerMin >= 10 ? 300 : 600;
+  const labelEvery = pxPerMin >= 10 ? 300 : pxPerMin >= 4 ? 600 : 1800;
   for (let s = 0; s <= contentSeconds(); s += tickEvery) {
     const tick = document.createElement('div');
     tick.className = 'tick' + (s % labelEvery === 0 ? ' major' : '');

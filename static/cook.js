@@ -14,6 +14,14 @@ let expandedId = null;
 let blocks = new Map();
 let nowline = null, nowbubble = null;
 
+// Pausing. A full pause freezes the master clock (startTs shifts on resume).
+// A single-lane pause accumulates an offset for that lane: the lane's local
+// time is elapsed minus its offset, so while paused the offset grows and the
+// lane's remaining steps slide later; the other lanes keep running. Offsets
+// live in elapsed time, not wall time, so a full pause freezes them too.
+let pausedAt = null;   // ms epoch while everything is paused
+let lanePause = {};    // laneKey -> { off: seconds, since: elapsed-seconds | null }
+
 const $ = s => document.querySelector(s);
 const timeline = $('.timeline');
 const rows = $('#rows');
@@ -22,11 +30,28 @@ const ruler = $('#ruler');
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 const secToPx = s => s / 60 * pxPerMin;
 const laneIdx = key => lanes.findIndex(l => l.key === key);
-const total = () => steps.reduce((m, s) => Math.max(m, s.start + s.duration), 0);
-const contentSeconds = () => Math.max(600, Math.ceil((total() + 60) / 300) * 300);
 const storageKey = () => 'teatime.start.' + mealKey;
 const doneKey = () => 'teatime.done.' + mealKey;
-const elapsed = () => startTs ? (Date.now() - startTs) / 1000 : 0;
+const pauseKey = () => 'teatime.pause.' + mealKey;
+const elapsed = () => startTs ? ((pausedAt ?? Date.now()) - startTs) / 1000 : 0;
+
+function laneOff(key) {
+  const p = lanePause[key];
+  if (!p) return 0;
+  return p.off + (p.since != null ? Math.max(0, elapsed() - p.since) : 0);
+}
+const lanePaused = key => lanePause[key]?.since != null;
+const effStart = s => s.start + laneOff(s.laneKey);
+const total = () => steps.reduce((m, s) => Math.max(m, effStart(s) + s.duration), 0);
+const contentSeconds = () => Math.max(600, Math.ceil((total() + 60) / 300) * 300);
+
+function savePause() {
+  if (pausedAt === null && !Object.keys(lanePause).length) {
+    localStorage.removeItem(pauseKey());
+  } else {
+    localStorage.setItem(pauseKey(), JSON.stringify({ pausedAt, lanes: lanePause }));
+  }
+}
 
 const recipeTotal = r => (r.steps || []).reduce((m, s) => Math.max(m, s.start + s.duration), 0);
 
@@ -103,8 +128,9 @@ function beep(times) {
 
 function alarmTimes(step) {
   const out = [];
-  if (step.alarm === 'start' || step.alarm === 'both') out.push([step.start, 'start']);
-  if (step.alarm === 'end' || step.alarm === 'both') out.push([step.start + step.duration, 'end']);
+  const start = effStart(step);   // a paused lane's alarms shift with it
+  if (step.alarm === 'start' || step.alarm === 'both') out.push([start, 'start']);
+  if (step.alarm === 'end' || step.alarm === 'both') out.push([start + step.duration, 'end']);
   return out;
 }
 
@@ -147,7 +173,20 @@ function showAlarm(due) {
 /* ---------- views: ingredients before the cook, timeline during ---------- */
 
 let view = '';
+let userView = null;   // 'ingredients' when the cook flips to the list mid-cook
 const hasIngredients = () => recipes.some(r => (r.ingredients || []).length);
+
+function ingredientLines() {
+  const out = [];
+  for (const r of recipes) {
+    const ings = r.ingredients || [];
+    if (!ings.length) continue;
+    if (recipes.length > 1) out.push(r.name + ':');
+    out.push(...ings);
+    if (recipes.length > 1) out.push('');
+  }
+  return out.join('\n').trim();
+}
 
 function setView(v) {
   if (view === v) return;
@@ -168,9 +207,12 @@ function buildIngredients() {
   sec.textContent = '';
   const inner = document.createElement('div');
   inner.className = 'ing-inner';
+  const head = document.createElement('div');
+  head.className = 'ing-head';
   const h = document.createElement('h1');
   h.textContent = 'Ingredients';
-  inner.append(h);
+  head.append(h, copyBtn(ingredientLines, 'Copy list'));
+  inner.append(head);
   for (const r of recipes) {
     const ings = r.ingredients || [];
     if (!ings.length) continue;
@@ -193,14 +235,20 @@ function buildIngredients() {
   btn.className = 'primary';
   btn.id = 'startBtn2';
   btn.textContent = 'Start cooking';
-  btn.addEventListener('click', start);
+  // once the cook is underway this button goes back to the timeline instead
+  btn.addEventListener('click', () => {
+    if (startTs) { userView = null; update(); } else start();
+  });
   inner.append(btn);
   sec.append(inner);
 }
 
 /* ---------- rendering ---------- */
 
+let renderedContent = 0;   // contentSeconds at last render; a pause can grow it
+
 function render() {
+  renderedContent = contentSeconds();
   const col = $('#laneNames');
   col.textContent = '';
   for (const lane of lanes) {
@@ -217,7 +265,10 @@ function render() {
     const label = document.createElement('span');
     label.className = 'lane-label';
     label.textContent = lane.label;
-    text.append(label);
+    const badge = document.createElement('span');
+    badge.className = 'lane-pause-badge';
+    badge.textContent = '⏸ paused';
+    text.append(label, badge);
     div.append(text);
     col.append(div);
   }
@@ -226,7 +277,8 @@ function render() {
   const width = secToPx(contentSeconds());
   ruler.style.width = width + 'px';
   const tickEvery = pxPerMin >= 6 ? 60 : 300;
-  const labelEvery = pxPerMin >= 10 ? 300 : 600;
+  // labels need ~40px each; step down as the zoom gets tighter
+  const labelEvery = pxPerMin >= 10 ? 300 : pxPerMin >= 4 ? 600 : 1800;
   for (let s = 0; s <= contentSeconds(); s += tickEvery) {
     const tick = document.createElement('div');
     tick.className = 'tick' + (s % labelEvery === 0 ? ' major' : '');
@@ -268,7 +320,7 @@ function render() {
     el.className = 'step clickable' + (step.alarm ? ' has-alarm' : '');
     el.dataset.id = step.key;
     const li = laneIdx(step.laneKey);
-    el.style.left = secToPx(step.start) + 'px';
+    el.style.left = secToPx(effStart(step)) + 'px';
     el.style.top = li * rowH + 5 + 'px';
     el.style.width = Math.max(secToPx(step.duration), 24) + 'px';
     el.style.setProperty('--step-bg', lanes[li].colour);
@@ -297,38 +349,63 @@ function update() {
   const tot = total();
   const el = elapsed();
   const state = !startTs ? 'idle' : el >= tot ? 'done' : 'running';
+  const anyLanePaused = lanes.some(l => lanePaused(l.key));
 
-  setView(state === 'idle' && hasIngredients() ? 'ingredients' : 'board');
+  setView(userView === 'ingredients' && hasIngredients() ? 'ingredients'
+    : state === 'idle' && hasIngredients() ? 'ingredients' : 'board');
 
   $('#resetBtn').hidden = !startTs;
   $('#startBtn').hidden = state === 'running';
   $('#startBtn').textContent = state === 'done' ? 'Start again' : 'Start cooking';
+  $('#pauseBtn').hidden = state !== 'running';
+  $('#pauseBtn').textContent = pausedAt !== null ? '▶ Resume' : '⏸ Pause';
+  $('#pauseBtn').classList.toggle('paused', pausedAt !== null || anyLanePaused);
+  $('#ingBtn').hidden = !startTs || !hasIngredients();
+  $('#ingBtn').textContent = view === 'ingredients' ? 'Timeline' : 'Ingredients';
+  const back = $('#startBtn2');
+  if (back) back.textContent = startTs ? 'Back to the timeline' : 'Start cooking';
   $('#wallClock').textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-  $('#clock').textContent = startTs ? fmtTimer(Math.min(el, tot)) + ' / ' + fmtTimer(tot) : '';
+  $('#clock').textContent = startTs
+    ? fmtTimer(Math.min(el, tot)) + ' / ' + fmtTimer(tot) + (pausedAt !== null ? ' — paused' : '')
+    : '';
+
+  // alarms must fire even while the cook is looking at the ingredients
+  if (state === 'running') checkAlarms(el);
 
   if (view !== 'board') return;
+
+  // a paused lane pushes the timeline's end out; regrow the ruler when needed
+  if (contentSeconds() !== renderedContent) {
+    fitWidth();
+    render();
+  }
+
+  const laneEls = $('#laneNames').children;
+  lanes.forEach((lane, i) => laneEls[i]?.classList.toggle('paused', lanePaused(lane.key)));
 
   const x = secToPx(Math.min(el, contentSeconds()));
   nowline.hidden = nowbubble.hidden = !startTs;
   if (startTs) {
     nowline.style.left = x + 'px';
     nowbubble.style.left = x + 'px';
-    nowbubble.textContent = fmtTimer(el);
+    nowbubble.textContent = fmtTimer(el) + (pausedAt !== null ? ' ⏸' : '');
   }
 
   for (const step of steps) {
-    const end = step.start + step.duration;
+    const start = effStart(step);
+    const end = start + step.duration;
     const ticked = doneSet.has(step.key);
     const block = blocks.get(step.key);
+    block.style.left = secToPx(start) + 'px';   // paused lanes slide as they wait
+    block.classList.toggle('paused', lanePaused(step.laneKey));
     block.classList.toggle('done', startTs && el >= end);
     block.classList.toggle('ticked', ticked);
-    block.classList.toggle('active', state === 'running' && !ticked && el >= step.start && el < end);
-    const pct = !startTs ? 0 : clamp((el - step.start) / step.duration * 100, 0, 100);
+    block.classList.toggle('active', state === 'running' && !ticked && el >= start && el < end);
+    const pct = !startTs ? 0 : clamp((el - start) / step.duration * 100, 0, 100);
     block.querySelector('.progress').style.width = pct + '%';
   }
 
-  if (state === 'running') {
-    checkAlarms(el);
+  if (state === 'running' && pausedAt === null) {
     const vis = timeline.scrollLeft, w = timeline.clientWidth;
     if (x < vis + 20 || x > vis + w - 80) timeline.scrollLeft = Math.max(0, x - w * 0.25);
   }
@@ -353,12 +430,14 @@ rows.addEventListener('click', e => {
 
 function timingText(step) {
   const state = !startTs ? 'idle' : elapsed() >= total() ? 'done' : 'running';
-  if (state !== 'running') return 'starts at ' + fmtTimer(step.start);
+  const start = effStart(step);
+  if (state !== 'running') return 'starts at ' + fmtTimer(start);
+  if (lanePaused(step.laneKey)) return 'paused';
   const el = elapsed();
-  const end = step.start + step.duration;
+  const end = start + step.duration;
   if (el >= end) return 'finished';
-  if (el >= step.start) return fmtDur(end - el) + ' left';
-  return 'in ' + fmtDur(step.start - el);
+  if (el >= start) return fmtDur(end - el) + ' left';
+  return 'in ' + fmtDur(start - el);
 }
 
 function openStep(key) {
@@ -400,7 +479,7 @@ $('#overlay').addEventListener('click', e => {
   if (!e.target.closest('.done-btn')) closeOverlay();
 });
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') closeOverlay();
+  if (e.key === 'Escape') { closeOverlay(); closePausePick(); }
 });
 
 function toggleDone(key) {
@@ -411,6 +490,83 @@ function toggleDone(key) {
   update();
 }
 
+/* ---------- pause ---------- */
+
+function pauseAll() {
+  if (pausedAt !== null || !startTs) return;
+  pausedAt = Date.now();
+  savePause();
+  update();
+}
+
+function resumeAll() {
+  if (pausedAt === null) return;
+  startTs += Date.now() - pausedAt;   // the pause never happened, clock-wise
+  pausedAt = null;
+  localStorage.setItem(storageKey(), String(startTs));
+  savePause();
+  update();
+}
+
+function toggleLanePause(key) {
+  const p = lanePause[key];
+  if (p && p.since != null) {
+    p.off += Math.max(0, elapsed() - p.since);   // bank the offset for good
+    p.since = null;
+    if (!p.off) delete lanePause[key];
+  } else {
+    lanePause[key] = { off: p ? p.off : 0, since: elapsed() };
+  }
+  savePause();
+  update();
+}
+
+function closePausePick() { $('#pausePick').hidden = true; }
+
+function openPausePick() {
+  const card = $('#pausePick').querySelector('.pause-card');
+  card.textContent = '';
+  const h = document.createElement('h2');
+  h.textContent = 'Pause what?';
+  const note = document.createElement('p');
+  note.className = 'pause-note';
+  note.textContent = 'Pausing one lane pushes its remaining steps later while the rest keep going.';
+  card.append(h, note);
+  const all = document.createElement('button');
+  all.className = 'primary';
+  all.textContent = 'Pause everything';
+  all.addEventListener('click', () => { closePausePick(); pauseAll(); });
+  card.append(all);
+  for (const lane of lanes) {
+    const b = document.createElement('button');
+    const name = (lane.sub ? lane.sub + ' · ' : '') + lane.label;
+    if (lanePaused(lane.key)) {
+      b.className = 'paused';
+      b.textContent = 'Resume ' + name;
+    } else {
+      b.textContent = 'Pause only ' + name;
+    }
+    b.addEventListener('click', () => { closePausePick(); toggleLanePause(lane.key); });
+    card.append(b);
+  }
+  $('#pausePick').hidden = false;
+}
+
+$('#pauseBtn').addEventListener('click', () => {
+  if (pausedAt !== null) resumeAll();
+  else if (lanes.length > 1) openPausePick();
+  else pauseAll();
+});
+
+$('#pausePick').addEventListener('click', e => {
+  if (e.target.id === 'pausePick') closePausePick();
+});
+
+$('#ingBtn').addEventListener('click', () => {
+  userView = view === 'ingredients' ? null : 'ingredients';
+  update();
+});
+
 /* ---------- controls ---------- */
 
 function start() {
@@ -419,6 +575,10 @@ function start() {
   localStorage.setItem(storageKey(), String(startTs));
   doneSet.clear();
   localStorage.removeItem(doneKey());
+  pausedAt = null;
+  lanePause = {};
+  savePause();
+  userView = null;
   lastEl = 0;
   $('#alarmbar').hidden = true;
   update();
@@ -430,8 +590,11 @@ $('#resetBtn').addEventListener('click', () => {
   if (!confirm('Reset the cooking timer?')) return;
   localStorage.removeItem(storageKey());
   localStorage.removeItem(doneKey());
+  localStorage.removeItem(pauseKey());
   startTs = null;
   doneSet.clear();
+  pausedAt = null;
+  lanePause = {};
   update();
 });
 
@@ -493,6 +656,13 @@ async function load() {
   try {
     doneSet = new Set(JSON.parse(localStorage.getItem(doneKey()) || '[]'));
   } catch { doneSet = new Set(); }
+  try {
+    const p = JSON.parse(localStorage.getItem(pauseKey()) || 'null');
+    if (p && startTs) {
+      pausedAt = p.pausedAt ?? null;
+      lanePause = p.lanes || {};
+    }
+  } catch { /* fresh state */ }
 
   buildIngredients();
   update();

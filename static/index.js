@@ -9,6 +9,16 @@ let meal = [];
 let meals = [];
 const summaries = new Map();   // id -> summary from the list endpoint
 
+const PAGE = 60;
+// a fresh shuffle order per visit; the seed keeps paging consistent within it
+const shuffleSeed = Math.floor(Math.random() * 1e9);
+let searching = false;    // a text or ingredient search is active
+let listParams = '';      // query string of the current list, for paging
+let listTotal = 0;        // matches on the server
+let listGen = 0;          // stale-response guard
+let loadingMore = false;
+let hiddenShown = false;
+
 try {
   meal = JSON.parse(localStorage.getItem('teatime.meal') || '[]');
 } catch { meal = []; }
@@ -72,12 +82,12 @@ function card(opts) {
   return el;
 }
 
-function renderRecipes(list) {
-  results.textContent = '';
-  if (!list.length) {
+function renderRecipes(list, append) {
+  if (!append) results.textContent = '';
+  if (!append && !list.length) {
     const p = document.createElement('p');
     p.className = 'empty';
-    p.textContent = searchBox.value.trim() ? 'No recipes match.' : 'No recipes yet.';
+    p.textContent = searching ? 'No recipes match.' : 'No recipes yet.';
     results.append(p);
     return;
   }
@@ -104,7 +114,8 @@ async function toggleStar(id, on) {
   refresh();
 }
 
-// starred recipes get their own section, independent of the current search
+// starred recipes get their own section, tucked away while a search is on
+// so results stay above the fold
 async function renderStarred() {
   const section = $('#starred');
   const list = $('#starredList');
@@ -112,7 +123,7 @@ async function renderStarred() {
   if (!res.ok) return;
   const starred = await res.json();
   for (const r of starred) summaries.set(r.id, r);
-  section.hidden = !starred.length;
+  section.hidden = searching || !starred.length;
   list.textContent = '';
   for (const r of starred) {
     const { text } = splitNotes(r.description);
@@ -131,7 +142,8 @@ async function renderStarred() {
 function renderMeals(q) {
   const section = $('#mealsSaved');
   const list = $('#mealsList');
-  const shown = meals.filter(m => !q || m.name.toLowerCase().includes(q.toLowerCase()));
+  const shown = meals.filter(m => !m.hidden)
+    .filter(m => !q || m.name.toLowerCase().includes(q.toLowerCase()));
   section.hidden = !shown.length;
   list.textContent = '';
   for (const m of shown) {
@@ -149,9 +161,22 @@ function renderMeals(q) {
 
 /* ---------- detail view ---------- */
 
-function detailShell(title, subtitle) {
+// empties the card, keeping a close button in the corner
+function resetDetailCard() {
   const card = $('#detailCard');
   card.textContent = '';
+  const close = document.createElement('button');
+  close.type = 'button';
+  close.className = 'detail-close';
+  close.setAttribute('aria-label', 'Close');
+  close.textContent = '×';
+  close.addEventListener('click', closeDetail);
+  card.append(close);
+  return card;
+}
+
+function detailShell(title, subtitle) {
+  const card = resetDetailCard();
   const h = document.createElement('h1');
   h.textContent = title;
   card.append(h);
@@ -207,7 +232,7 @@ async function openRecipe(id) {
   const alarms = r.steps.filter(st => st.alarm).length;
   const { text, notes } = splitNotes(r.description);
 
-  card.textContent = '';
+  resetDetailCard();
   const h = document.createElement('h1');
   h.textContent = r.name;
   const meta = document.createElement('p');
@@ -220,7 +245,31 @@ async function openRecipe(id) {
   ].filter(Boolean).join(' · ');
   card.append(h, meta);
 
-  card.append(actionRow([
+  const setHidden = async on => {
+    await fetch('/api/recipes/' + encodeURIComponent(r.id) + '/hide?on=' + (on ? 1 : 0),
+      { method: 'POST' });
+    if (on) {
+      meal = meal.filter(m => m !== r.id);
+      saveMeal();
+      summaries.delete(r.id);
+    }
+    closeDetail();
+    refresh();
+  };
+  card.append(actionRow(r.hidden ? [
+    { label: 'Bring back', cls: 'primary', onClick: () => setHidden(false) },
+    { label: 'Edit', href: 'editor.html?id=' + encodeURIComponent(r.id) },
+    {
+      label: 'Delete forever', cls: 'danger',
+      onClick: async () => {
+        if (!confirm(`Permanently delete "${r.name}"? This cannot be undone.`)) return;
+        await fetch('/api/recipes/' + encodeURIComponent(r.id), { method: 'DELETE' });
+        summaries.delete(r.id);
+        closeDetail();
+        refresh();
+      },
+    },
+  ] : [
     { label: 'Cook', cls: 'primary', href: 'cook.html?id=' + encodeURIComponent(r.id) },
     {
       label: r.starred ? 'Starred' : 'Star for this week',
@@ -236,17 +285,7 @@ async function openRecipe(id) {
       onClick: () => { meal.push(r.id); saveMeal(); closeDetail(); refresh(); },
     },
     { label: 'Edit', href: 'editor.html?id=' + encodeURIComponent(r.id) },
-    {
-      label: 'Delete', cls: 'danger',
-      onClick: async () => {
-        if (!confirm(`Delete "${r.name}"?`)) return;
-        await fetch('/api/recipes/' + encodeURIComponent(r.id), { method: 'DELETE' });
-        meal = meal.filter(m => m !== r.id);
-        saveMeal();
-        closeDetail();
-        refresh();
-      },
-    },
+    { label: 'Hide', cls: 'danger', onClick: () => setHidden(true) },
   ]));
 
   if (text) {
@@ -268,6 +307,7 @@ async function openRecipe(id) {
   if (r.ingredients?.length) {
     const t = document.createElement('h2');
     t.textContent = 'Ingredients';
+    t.append(copyBtn(() => r.ingredients.join('\n')));
     const ul = document.createElement('ul');
     ul.className = 'detail-list';
     for (const i of r.ingredients) {
@@ -299,22 +339,35 @@ function openMeal(m) {
   const longest = Math.max(0, ...m.recipeIds.map(id => summaries.get(id)?.totalSeconds || 0));
   const card = detailShell(m.name, `${m.recipeIds.length} recipes · everything ready in ${fmtDur(longest)}`);
 
-  card.append(actionRow([
-    { label: 'Cook', cls: 'primary', href: 'cook.html?meal=' + encodeURIComponent(m.id) },
+  const setMealHidden = async on => {
+    await fetch('/api/meals/' + encodeURIComponent(m.id), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ...m, hidden: on }),
+    });
+    closeDetail();
+    await fetchMeals();
+    refresh();
+  };
+  card.append(actionRow(m.hidden ? [
+    { label: 'Bring back', cls: 'primary', onClick: () => setMealHidden(false) },
     {
-      label: 'Load into builder',
-      onClick: () => { meal = [...m.recipeIds]; saveMeal(); closeDetail(); refresh(); },
-    },
-    {
-      label: 'Delete', cls: 'danger',
+      label: 'Delete forever', cls: 'danger',
       onClick: async () => {
-        if (!confirm(`Delete meal "${m.name}"?`)) return;
+        if (!confirm(`Permanently delete meal "${m.name}"? This cannot be undone.`)) return;
         await fetch('/api/meals/' + encodeURIComponent(m.id), { method: 'DELETE' });
         closeDetail();
         await fetchMeals();
         refresh();
       },
     },
+  ] : [
+    { label: 'Cook', cls: 'primary', href: 'cook.html?meal=' + encodeURIComponent(m.id) },
+    {
+      label: 'Load into builder',
+      onClick: () => { meal = [...m.recipeIds]; saveMeal(); closeDetail(); refresh(); },
+    },
+    { label: 'Hide', cls: 'danger', onClick: () => setMealHidden(true) },
   ]));
 
   const t = document.createElement('h2');
@@ -337,7 +390,7 @@ function openMeal(m) {
 
 function renderMeal() {
   const section = $('#meal');
-  section.hidden = !meal.length;
+  section.hidden = searching || !meal.length;
   if (!meal.length) return;
   const list = $('#mealList');
   list.textContent = '';
@@ -395,18 +448,28 @@ async function fetchMeals() {
 async function refresh() {
   const q = searchBox.value.trim();
   const ings = ingBox.value.split(',').map(s => s.trim()).filter(Boolean);
+  searching = !!(q || ings.length);
+  const gen = ++listGen;
+
   const params = new URLSearchParams();
   if (q) params.set('q', q);
   for (const i of ings) params.append('ing', i);
-  const res = await fetch('/api/recipes' + (params.toString() ? '?' + params : ''));
+  // browsing gets a shuffled order; a search stays alphabetical
+  if (!searching) params.set('shuffle', shuffleSeed);
+  params.set('limit', PAGE);
+  listParams = params.toString();
+
+  const res = await fetch('/api/recipes?' + listParams);
+  if (gen !== listGen) return;   // a newer search superseded this one
   if (!res.ok) {
     results.innerHTML = '<p class="empty">Failed to load recipes.</p>';
     return;
   }
   const list = await res.json();
-  const total = parseInt(res.headers.get('X-Total-Count') || list.length, 10);
+  if (gen !== listGen) return;
+  listTotal = parseInt(res.headers.get('X-Total-Count') || list.length, 10);
   for (const r of list) summaries.set(r.id, r);
-  if (!q && !ings.length && total === list.length) {
+  if (!searching && listTotal === list.length) {
     // full list: drop meal entries for recipes that no longer exist
     const ids = new Set(list.map(r => r.id));
     const pruned = meal.filter(id => ids.has(id));
@@ -415,15 +478,95 @@ async function refresh() {
       saveMeal();
     }
   }
-  const what = ings.length ? `Recipes with ${ings.join(' + ')}` : 'Recipes';
-  $('#recipesHeading').textContent = total > list.length
-    ? `${what} (showing ${list.length} of ${total} — narrow the search)`
-    : `${what} (${total})`;
+  const bits = [];
+  if (q) bits.push(`“${q}”`);
+  if (ings.length) bits.push('with ' + ings.join(' + '));
+  $('#recipesHeading').textContent = searching
+    ? `Recipes matching ${bits.join(', ')} (${listTotal})`
+    : `Recipes (${listTotal})`;
+
+  // while searching, everything above and below the results steps aside
+  $('#backup').hidden = searching;
+  $('#hiddenSec').hidden = searching;
+
   renderRecipes(list);
   renderMeal();
   renderMeals(q);
   renderStarred();
+  if (hiddenShown && !searching) renderHidden();
 }
+
+/* ---------- continuous scroll ---------- */
+
+async function loadMore() {
+  const rendered = results.querySelectorAll('.card').length;
+  if (loadingMore || rendered >= listTotal) return;
+  loadingMore = true;
+  $('#moreNote').hidden = false;
+  const gen = listGen;
+  try {
+    const params = new URLSearchParams(listParams);
+    params.set('offset', rendered);
+    const res = await fetch('/api/recipes?' + params);
+    if (!res.ok || gen !== listGen) return;
+    const list = await res.json();
+    if (gen !== listGen) return;
+    if (!list.length) { listTotal = rendered; return; }   // server ran dry early
+    for (const r of list) summaries.set(r.id, r);
+    renderRecipes(list, true);
+  } finally {
+    loadingMore = false;
+    $('#moreNote').hidden = true;
+  }
+}
+
+new IntersectionObserver(entries => {
+  if (entries.some(e => e.isIntersecting)) loadMore();
+}, { rootMargin: '600px' }).observe($('#sentinel'));
+
+/* ---------- hidden items ---------- */
+
+async function renderHidden() {
+  const list = $('#hiddenList');
+  const res = await fetch('/api/recipes?hidden=1&limit=0');
+  const hid = res.ok ? await res.json() : [];
+  for (const r of hid) summaries.set(r.id, r);
+  const hiddenMeals = meals.filter(m => m.hidden);
+  list.textContent = '';
+  if (!hid.length && !hiddenMeals.length) {
+    const p = document.createElement('p');
+    p.className = 'empty';
+    p.textContent = 'Nothing is hidden.';
+    list.append(p);
+    return;
+  }
+  for (const m of hiddenMeals) {
+    list.append(card({
+      title: m.name,
+      sub: m.recipeIds.map(id => summaries.get(id)?.name || id).join(', '),
+      time: '',
+      flag: 'hidden meal',
+      onClick: () => openMeal(m),
+    }));
+  }
+  for (const r of hid) {
+    const { text } = splitNotes(r.description);
+    list.append(card({
+      title: r.name,
+      sub: text,
+      time: fmtDur(r.totalSeconds),
+      flag: 'hidden',
+      onClick: () => openRecipe(r.id),
+    }));
+  }
+}
+
+$('#hiddenToggle').addEventListener('click', () => {
+  hiddenShown = !hiddenShown;
+  $('#hiddenToggle').textContent = hiddenShown ? 'Put the list away' : 'Show hidden items';
+  $('#hiddenList').hidden = !hiddenShown;
+  if (hiddenShown) renderHidden();
+});
 
 for (const el of [searchBox, ingBox]) {
   el.addEventListener('input', () => {

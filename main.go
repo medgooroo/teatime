@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"math/rand"
 	"net"
 	"net/http"
 	"os"
@@ -49,6 +50,7 @@ type Recipe struct {
 	Steps       []Step   `json:"steps"`
 	Source      *Source  `json:"source,omitempty"`
 	Starred     bool     `json:"starred,omitempty"`
+	Hidden      bool     `json:"hidden,omitempty"`
 }
 
 func (r *Recipe) total() int {
@@ -67,6 +69,7 @@ type Summary struct {
 	Description  string `json:"description"`
 	TotalSeconds int    `json:"totalSeconds"`
 	Starred      bool   `json:"starred"`
+	Hidden       bool   `json:"hidden,omitempty"`
 }
 
 // Store keeps one JSON file per recipe under dir; the filename is the id.
@@ -157,13 +160,13 @@ func (st *Store) put(r *Recipe) error {
 	return st.write(r)
 }
 
-// setStar flips one recipe's star. The cached index is patched in place rather
-// than invalidated, so starring stays instant on a store of thousands.
-func (st *Store) setStar(id string, on bool) (*Recipe, error) {
+// setFlag mutates one recipe and patches the cached index in place rather
+// than invalidating it, so toggles stay instant on a store of thousands.
+func (st *Store) setFlag(id string, mut func(*Recipe), patch func(*indexed)) (*Recipe, error) {
 	st.mu.Lock()
 	rec, err := st.read(id)
 	if err == nil {
-		rec.Starred = on
+		mut(rec)
 		err = st.write(rec)
 	}
 	st.mu.Unlock()
@@ -176,7 +179,7 @@ func (st *Store) setStar(id string, on bool) (*Recipe, error) {
 	if st.cache != nil {
 		for i := range st.cache {
 			if st.cache[i].ID == id {
-				st.cache[i].Starred = on
+				patch(&st.cache[i])
 				break
 			}
 		}
@@ -187,6 +190,20 @@ func (st *Store) setStar(id string, on bool) (*Recipe, error) {
 		}
 	}
 	return rec, nil
+}
+
+func (st *Store) setStar(id string, on bool) (*Recipe, error) {
+	return st.setFlag(id,
+		func(r *Recipe) { r.Starred = on },
+		func(x *indexed) { x.Starred = on })
+}
+
+// setHidden tucks a recipe away without deleting it; the file (and its
+// Guardian uid) stays on disk, so a sync still knows not to re-import it.
+func (st *Store) setHidden(id string, on bool) (*Recipe, error) {
+	return st.setFlag(id,
+		func(r *Recipe) { r.Hidden = on },
+		func(x *indexed) { x.Hidden = on })
 }
 
 func (st *Store) dirState() (int, time.Time, error) {
@@ -262,7 +279,7 @@ func (st *Store) summaries() ([]indexed, error) {
 		sums = append(sums, indexed{
 			Summary: Summary{
 				ID: r.ID, Name: r.Name, Description: r.Description,
-				TotalSeconds: r.total(), Starred: r.Starred,
+				TotalSeconds: r.total(), Starred: r.Starred, Hidden: r.Hidden,
 			},
 			hay:  strings.ToLower(r.Name + "\n" + r.Description),
 			ings: ings,
@@ -364,7 +381,15 @@ func apiHandler(st *Store) http.HandlerFunc {
 		id := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/recipes"), "/")
 
 		// /api/recipes/{id}/star — mark a recipe for the week ahead
-		if rest, ok := strings.CutSuffix(id, "/star"); ok {
+		// /api/recipes/{id}/hide — tuck it away without deleting
+		for _, flag := range []struct {
+			suffix string
+			set    func(string, bool) (*Recipe, error)
+		}{{"/star", st.setStar}, {"/hide", st.setHidden}} {
+			rest, ok := strings.CutSuffix(id, flag.suffix)
+			if !ok {
+				continue
+			}
 			if r.Method != http.MethodPost {
 				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 				return
@@ -373,12 +398,14 @@ func apiHandler(st *Store) http.HandlerFunc {
 			if v := r.URL.Query().Get("on"); v != "" {
 				on = v == "1" || strings.EqualFold(v, "true")
 			}
-			rec, err := st.setStar(rest, on)
+			rec, err := flag.set(rest, on)
 			if err != nil {
 				httpError(w, err)
 				return
 			}
-			writeJSON(w, http.StatusOK, map[string]any{"id": rec.ID, "starred": rec.Starred})
+			writeJSON(w, http.StatusOK, map[string]any{
+				"id": rec.ID, "starred": rec.Starred, "hidden": rec.Hidden,
+			})
 			return
 		}
 
@@ -430,9 +457,13 @@ func apiHandler(st *Store) http.HandlerFunc {
 			}
 
 			starredOnly := r.URL.Query().Get("starred") == "1"
+			hiddenOnly := r.URL.Query().Get("hidden") == "1"
 
 			sums := []Summary{}
 			for _, s := range all {
+				if s.Hidden != hiddenOnly {
+					continue
+				}
 				if starredOnly && !s.Starred {
 					continue
 				}
@@ -451,12 +482,30 @@ func apiHandler(st *Store) http.HandlerFunc {
 				}
 				sums = append(sums, s.Summary)
 			}
+			// ?shuffle=<seed> serves a browsing order instead of alphabetical;
+			// the same seed gives the same order, so paging stays consistent
+			if v := r.URL.Query().Get("shuffle"); v != "" {
+				var seed int64
+				fmt.Sscanf(v, "%d", &seed)
+				rnd := rand.New(rand.NewSource(seed))
+				rnd.Shuffle(len(sums), func(i, j int) { sums[i], sums[j] = sums[j], sums[i] })
+			}
 			// a huge store would otherwise ship megabytes to the browser
 			limit := 500
 			if v := r.URL.Query().Get("limit"); v != "" {
 				fmt.Sscanf(v, "%d", &limit)
 			}
+			offset := 0
+			if v := r.URL.Query().Get("offset"); v != "" {
+				fmt.Sscanf(v, "%d", &offset)
+			}
 			w.Header().Set("X-Total-Count", fmt.Sprint(len(sums)))
+			if offset > 0 {
+				if offset > len(sums) {
+					offset = len(sums)
+				}
+				sums = sums[offset:]
+			}
 			if limit > 0 && len(sums) > limit {
 				sums = sums[:limit]
 			}
@@ -510,6 +559,7 @@ type Meal struct {
 	ID        string   `json:"id"`
 	Name      string   `json:"name"`
 	RecipeIDs []string `json:"recipeIds"`
+	Hidden    bool     `json:"hidden,omitempty"`
 }
 
 type MealStore struct {

@@ -6,7 +6,7 @@
 <title>Cook — teatime</title>
 <link rel="stylesheet" href="style.css">
 </head>
-<body class="editor-page">
+<body class="editor-page cook-page">
 <header class="topbar">
   <a class="brand" href="/">teatime</a>
   <span id="recipeTitle" class="title"></span>
@@ -16,9 +16,11 @@
     <span id="wallClock"></span>
     <span id="clock"></span>
   </div>
+  <button id="ingBtn" hidden>Ingredients</button>
   <button id="zoomOut" title="Zoom out">&minus;</button>
   <button id="zoomIn" title="Zoom in">+</button>
   <button id="resetBtn" class="danger" hidden>Reset</button>
+  <button id="pauseBtn" hidden>Pause</button>
   <button id="startBtn" class="primary">Start cooking</button>
   <a id="editLink"><button>Edit</button></a>
 </header>
@@ -34,6 +36,9 @@
 </main>
 <section id="ingredients" hidden></section>
 <div id="alarmbar" hidden></div>
+<div id="pausePick" hidden>
+  <div class="pause-card"></div>
+</div>
 <div id="overlay" hidden>
   <div id="bigstep"></div>
 </div>
