@@ -11,12 +11,15 @@ fit, 2-minute filler durations where the prose states none, and no backward
 scheduling. Tidying is the judgment pass the converter can't do. The owner has
 said the live server is theirs and can be hammered freely.
 
-**Server: https://tea.nominallysafe.org** — no auth, plain JSON API.
+**Server**: the authenticated base URL lives in `.teatime-remote` in the repo
+root (gitignored — never commit it or echo it into committed files):
+`BASE=$(cat .teatime-remote)` then `curl "$BASE/api/..."`. If the file is
+missing, ask the owner for the URL and credentials.
 
 ## Batch flow (5–10 recipes per batch)
 
 1. **Backup first, every session** (not every batch):
-   `curl -s https://tea.nominallysafe.org/api/backup -o "$TEMP/teatime-backup-<date>.tar.gz"`
+   `curl -s "$BASE/api/backup" -o "$TEMP/teatime-backup-<date>.tar.gz"`
    Tell the owner where it landed.
 
 2. **Pick the batch.** Untidied pool: `GET /api/recipes?tidied=0&limit=0`
@@ -43,7 +46,7 @@ said the live server is theirs and can be hammered freely.
    positive durations, valid alarms). Fix anything it flags.
 
 6. **PUT each recipe back:**
-   `curl -X PUT https://tea.nominallysafe.org/api/recipes/{id} -H 'Content-Type: application/json' --data-binary @file.json`
+   `curl -X PUT "$BASE/api/recipes/{id}" -H 'Content-Type: application/json' --data-binary @file.json`
    The response echoes the saved recipe — confirm `"tidied": true` survived.
    If it doesn't, the server predates the tidied field: stop and tell the
    owner a deploy is needed.
