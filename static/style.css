@@ -261,7 +261,7 @@ button.starred { border-color: var(--star); color: var(--star); }
   padding: 4px 10px;
 }
 .detail-close:hover { color: var(--text); }
-#detailCard h1 { font-size: 24px; margin: 0 0 4px; }
+#detailCard h1 { font-size: 24px; margin: 0 0 4px; padding-right: 36px; }   /* clear of the close button */
 #detailCard h2 {
   font-size: 12px;
   text-transform: uppercase;
@@ -722,7 +722,8 @@ button.starred { border-color: var(--star); color: var(--star); }
 /* fat-finger insurance on touch screens */
 @media (pointer: coarse) {
   .card-star { font-size: 24px; padding: 8px 12px; }
-  .detail-close { font-size: 28px; padding: 8px 14px; }
+  .detail-close { font-size: 28px; padding: 8px 14px; top: 4px; right: 4px; }
+  #detailCard h1 { padding-right: 44px; }
   #mealList button { padding: 6px 14px; font-size: 20px; }
   .lane-name button { padding: 6px 8px; font-size: 13px; }
   .copy-btn { padding: 6px 14px; }
