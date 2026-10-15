@@ -7,6 +7,10 @@ services:
     volumes:
       - tea-data:/data
     restart: unless-stopped
+    # login for the site and the API; set it in a .env file beside this one
+    # (gitignored). Unset means no login at all.
+    environment:
+      TEATIME_PASSWORD: ${TEATIME_PASSWORD:-}
 volumes:
   tea-data:
 networks:

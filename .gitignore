@@ -5,3 +5,4 @@ teatime.exe~
 .teatime-remote
 guardian-cache/
 data/
+.env

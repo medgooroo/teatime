@@ -728,3 +728,38 @@ button.starred { border-color: var(--star); color: var(--star); }
   .copy-btn { padding: 6px 14px; }
 }
 
+
+/* sign-in page */
+.login {
+  max-width: 320px;
+  margin: 18vh auto 0;
+  padding: 0 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.login h1 { margin: 0 0 10px; font-size: 26px; }
+.login label { color: var(--muted); font-size: 13px; }
+.login input[type=password] { padding: 10px 12px; font-size: 17px; }
+.login button { padding: 10px; font-size: 16px; }
+.login-error { margin: 0; color: var(--danger); }
+.login-note { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+
+/* cook view: steps are tapped, not dragged, so a swipe on one must still
+   scroll the timeline */
+.cook-page .step { touch-action: pan-x pan-y; cursor: pointer; }
+
+/* scrubbing: drag along the ruler to move the clock */
+.cook-page #ruler { touch-action: none; cursor: ew-resize; }
+#nowbubble.scrubbing { background: var(--text); color: var(--bg); }
+#scrubline {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--text);
+  opacity: 0.8;
+  z-index: 3;
+  pointer-events: none;
+}

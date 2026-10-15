@@ -804,5 +804,5 @@ func main() {
 	if tcp, ok := ln.Addr().(*net.TCPAddr); ok && tcp.IP.To4() == nil && !tcp.IP.IsUnspecified() {
 		log.Printf("warning: bound IPv6 only — 127.0.0.1:%d will not reach this server", tcp.Port)
 	}
-	log.Fatal(http.Serve(ln, mux))
+	log.Fatal(http.Serve(ln, newAuth().wrap(mux)))
 }

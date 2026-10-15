@@ -1,5 +1,24 @@
 'use strict';
 
+// signed out (cookie expired or cleared): any API call that comes back 401
+// sends the page to the login form, which returns here afterwards
+{
+  const realFetch = window.fetch.bind(window);
+  window.fetch = async (...args) => {
+    const res = await realFetch(...args);
+    if (res.status === 401 && location.pathname !== '/login') {
+      location.href = '/login?next=' + encodeURIComponent(location.pathname + location.search);
+    }
+    return res;
+  };
+}
+
+// Fitting a whole recipe into a phone's width makes short steps a few pixels
+// wide. On touch screens the timeline never goes below this scale; it scrolls.
+const TOUCH_MIN_PX_PER_MIN = 14;
+const isTouch = () => matchMedia('(pointer: coarse)').matches || innerWidth <= 700;
+const fitFloor = () => isTouch() ? TOUCH_MIN_PX_PER_MIN : 2;
+
 const LANE_COLOURS = ['#4f8a67', '#a2734f', '#5c7cb8', '#b06584', '#7e9a55', '#8f6fb5'];
 const laneColour = i => LANE_COLOURS[((i % LANE_COLOURS.length) + LANE_COLOURS.length) % LANE_COLOURS.length];
 

@@ -94,7 +94,7 @@ function fitRows() {
 
 // and the timeline stretches to fill the window width
 function fitWidth() {
-  pxPerMin = clamp((timeline.clientWidth - 20) / (contentSeconds() / 60), 2, 80);
+  pxPerMin = clamp((timeline.clientWidth - 20) / (contentSeconds() / 60), fitFloor(), 80);
 }
 
 /* ---------- alarms ---------- */
@@ -385,7 +385,7 @@ function update() {
 
   const x = secToPx(Math.min(el, contentSeconds()));
   nowline.hidden = nowbubble.hidden = !startTs;
-  if (startTs) {
+  if (startTs && !scrub) {
     nowline.style.left = x + 'px';
     nowbubble.style.left = x + 'px';
     nowbubble.textContent = fmtTimer(el) + (pausedAt !== null ? ' ⏸' : '');
@@ -405,7 +405,7 @@ function update() {
     block.querySelector('.progress').style.width = pct + '%';
   }
 
-  if (state === 'running' && pausedAt === null) {
+  if (state === 'running' && pausedAt === null && !scrub) {
     const vis = timeline.scrollLeft, w = timeline.clientWidth;
     if (x < vis + 20 || x > vis + w - 80) timeline.scrollLeft = Math.max(0, x - w * 0.25);
   }
@@ -422,10 +422,29 @@ function escapeHtml(s) {
 
 /* ---------- tap a step: full-screen reader card ---------- */
 
+// Short steps can be narrower than a fingertip, and their minimum width makes
+// neighbours overlap, so resolve a tap by position rather than by whichever
+// element happens to be on top: the step under the finger in that lane, else
+// the nearest one within reach.
+const TAP_SLOP = 22;   // px
+function stepAt(clientX, clientY) {
+  const r = rows.getBoundingClientRect();
+  const x = clientX - r.left, y = clientY - r.top;
+  const li = Math.floor(y / rowH);
+  if (li < 0 || li >= lanes.length) return null;
+  let best = null, bestD = Infinity;
+  for (const step of steps) {
+    if (step.laneKey !== lanes[li].key) continue;
+    const a = secToPx(effStart(step)), b = a + secToPx(step.duration);
+    const d = x < a ? a - x : x > b ? x - b : 0;
+    if (d < bestD) { best = step; bestD = d; }
+  }
+  return bestD <= TAP_SLOP ? best : null;
+}
+
 rows.addEventListener('click', e => {
-  const block = e.target.closest('.step');
-  if (!block) return;
-  openStep(block.dataset.id);
+  const step = stepAt(e.clientX, e.clientY);
+  if (step) openStep(step.key);
 });
 
 function timingText(step) {
@@ -479,7 +498,7 @@ $('#overlay').addEventListener('click', e => {
   if (!e.target.closest('.done-btn')) closeOverlay();
 });
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') { closeOverlay(); closePausePick(); }
+  if (e.key === 'Escape') { closeOverlay(); closePausePick(); if (scrub) endScrub(); }
 });
 
 function toggleDone(key) {
@@ -559,13 +578,100 @@ $('#pauseBtn').addEventListener('click', () => {
 });
 
 $('#pausePick').addEventListener('click', e => {
-  if (e.target.id === 'pausePick') closePausePick();
+  if (e.target.id !== 'pausePick') return;
+  closePausePick();
+  if (scrub) endScrub();
 });
 
 $('#ingBtn').addEventListener('click', () => {
   userView = view === 'ingredients' ? null : 'ingredients';
   update();
 });
+
+/* ---------- scrub: move the clock when the cook is ahead or behind ---------- */
+
+let scrub = null;   // { target } while dragging on the ruler
+
+const scrubTargetAt = clientX => {
+  const x = clientX - rows.getBoundingClientRect().left;
+  return clamp(Math.round(x / pxPerMin * 60 / 5) * 5, 0, total());
+};
+
+function showScrub(target) {
+  const delta = target - elapsed();
+  const x = secToPx(target) + 'px';
+  let line = $('#scrubline');
+  if (!line) {
+    line = document.createElement('div');
+    line.id = 'scrubline';
+    rows.append(line);
+  }
+  line.style.left = x;
+  nowbubble.hidden = false;
+  nowbubble.classList.add('scrubbing');
+  nowbubble.style.left = x;
+  nowbubble.textContent = fmtTimer(target) + ' (' + (delta >= 0 ? '+' : '−') + fmtDur(Math.abs(delta)) + ')';
+}
+
+function endScrub() {
+  scrub = null;
+  $('#scrubline')?.remove();
+  nowbubble?.classList.remove('scrubbing');
+  update();
+}
+
+ruler.addEventListener('pointerdown', e => {
+  if (!startTs || view !== 'board') return;
+  e.preventDefault();
+  ruler.setPointerCapture(e.pointerId);
+  scrub = { target: scrubTargetAt(e.clientX) };
+  showScrub(scrub.target);
+});
+ruler.addEventListener('pointermove', e => {
+  if (!scrub) return;
+  scrub.target = scrubTargetAt(e.clientX);
+  showScrub(scrub.target);
+});
+ruler.addEventListener('pointerup', () => {
+  if (!scrub) return;
+  const target = scrub.target;
+  if (Math.abs(target - elapsed()) < 5) { endScrub(); return; }
+  confirmScrub(target);
+});
+ruler.addEventListener('pointercancel', () => { if (scrub) endScrub(); });
+
+function confirmScrub(target) {
+  const delta = target - elapsed();
+  const ahead = delta > 0;
+  const card = $('#pausePick').querySelector('.pause-card');
+  card.textContent = '';
+  const h = document.createElement('h2');
+  h.textContent = (ahead ? 'Jump ahead ' : 'Go back ') + fmtDur(Math.abs(delta)) + '?';
+  const note = document.createElement('p');
+  note.className = 'pause-note';
+  note.textContent = 'The clock will read ' + fmtTimer(target) + '. ' + (ahead
+    ? 'Steps before then count as finished, and their alarms won’t sound.'
+    : 'Steps after then become upcoming again, and their alarms will sound.');
+  const yes = document.createElement('button');
+  yes.className = 'primary';
+  yes.textContent = ahead ? 'Yes, I’m ahead' : 'Yes, I’m behind';
+  yes.addEventListener('click', () => { closePausePick(); applyScrub(target); });
+  const no = document.createElement('button');
+  no.textContent = 'Cancel';
+  no.addEventListener('click', () => { closePausePick(); endScrub(); });
+  card.append(h, note, yes, no);
+  $('#pausePick').hidden = false;
+}
+
+function applyScrub(target) {
+  const delta = target - elapsed();
+  // shifting the start moves elapsed() by delta whether running or paused
+  startTs = Math.min(startTs - delta * 1000, pausedAt ?? Date.now());
+  localStorage.setItem(storageKey(), String(startTs));
+  lastEl = elapsed();   // alarms in the skipped stretch stay quiet
+  $('#alarmbar').hidden = true;
+  endScrub();
+}
 
 /* ---------- controls ---------- */
 

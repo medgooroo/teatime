@@ -17,6 +17,35 @@ The server logs the address it actually bound. If another process already holds
 IPv4 on that port, Go will bind IPv6 only and the server answers on `[::1]` but
 not `127.0.0.1` — the log warns when this happens. Use `-addr :8090` to avoid it.
 
+## Login
+
+Set `TEATIME_PASSWORD` and the site asks for it once per device, then keeps a
+signed cookie for 400 days (renewed as it's used). Scripts use basic auth with
+the same password and user `admin` (or `TEATIME_USER`):
+`curl -u admin:<password> …`. With no password set there is no login, which
+suits `go run .` locally. Sign out is on the Manage page. Changing the password
+signs every device out.
+
+For the Docker deployment, put the password in a `.env` file beside
+`docker-compose.yaml` (gitignored):
+
+```
+TEATIME_PASSWORD=…
+```
+
+then rebuild. Remove any Caddy `basic_auth` for the site afterwards; with it in
+place phones still get the browser's auth prompt.
+
+## Cooking
+
+Tap a step for its card. On phones the timeline keeps a minimum scale and
+scrolls sideways rather than shrinking short steps to slivers; a tap picks the
+nearest step in that lane.
+
+If you are ahead of or behind the plan, drag along the ruler to move the clock.
+Letting go asks for confirmation first. Alarms in a stretch you skip forward
+over don't sound; steps you go back over sound again.
+
 ## Guardian recipes
 
 The Guardian's Feast backend is public and serves structured recipes (parsed

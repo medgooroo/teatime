@@ -42,7 +42,7 @@ function fitRows() {
 }
 
 function fitWidth() {
-  pxPerMin = clamp((timeline.clientWidth - 20) / (contentSeconds() / 60), 2, 60);
+  pxPerMin = clamp((timeline.clientWidth - 20) / (contentSeconds() / 60), fitFloor(), 60);
 }
 
 function fit() {
