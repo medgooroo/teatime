@@ -78,7 +78,7 @@ function copyBtn(getText, label = 'Copy') {
     e.stopPropagation();
     try {
       await copyText(getText());
-      b.textContent = 'Copied ✓';
+      b.textContent = 'Copied';
     } catch {
       b.textContent = 'Copy failed';
     }

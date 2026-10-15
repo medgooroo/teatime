@@ -267,7 +267,7 @@ function render() {
     label.textContent = lane.label;
     const badge = document.createElement('span');
     badge.className = 'lane-pause-badge';
-    badge.textContent = '⏸ paused';
+    badge.textContent = 'paused';
     text.append(label, badge);
     div.append(text);
     col.append(div);
@@ -345,6 +345,12 @@ function render() {
 
 /* ---------- ticking ---------- */
 
+// the bubble is centred on the line, but near either end it would be cut off
+function placeBubble(x) {
+  const half = nowbubble.offsetWidth / 2 + 2;
+  nowbubble.style.left = clamp(x, half, Math.max(half, ruler.offsetWidth - half)) + 'px';
+}
+
 function update() {
   const tot = total();
   const el = elapsed();
@@ -358,7 +364,7 @@ function update() {
   $('#startBtn').hidden = state === 'running';
   $('#startBtn').textContent = state === 'done' ? 'Start again' : 'Start cooking';
   $('#pauseBtn').hidden = state !== 'running';
-  $('#pauseBtn').textContent = pausedAt !== null ? '▶ Resume' : '⏸ Pause';
+  $('#pauseBtn').textContent = pausedAt !== null ? 'Resume' : 'Pause';
   $('#pauseBtn').classList.toggle('paused', pausedAt !== null || anyLanePaused);
   $('#ingBtn').hidden = !startTs || !hasIngredients();
   $('#ingBtn').textContent = view === 'ingredients' ? 'Timeline' : 'Ingredients';
@@ -366,7 +372,7 @@ function update() {
   if (back) back.textContent = startTs ? 'Back to the timeline' : 'Start cooking';
   $('#wallClock').textContent = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   $('#clock').textContent = startTs
-    ? fmtTimer(Math.min(el, tot)) + ' / ' + fmtTimer(tot) + (pausedAt !== null ? ' — paused' : '')
+    ? fmtTimer(Math.min(el, tot)) + ' / ' + fmtTimer(tot)
     : '';
 
   // alarms must fire even while the cook is looking at the ingredients
@@ -387,8 +393,8 @@ function update() {
   nowline.hidden = nowbubble.hidden = !startTs;
   if (startTs && !scrub) {
     nowline.style.left = x + 'px';
-    nowbubble.style.left = x + 'px';
-    nowbubble.textContent = fmtTimer(el) + (pausedAt !== null ? ' ⏸' : '');
+    nowbubble.textContent = fmtTimer(el) + (pausedAt !== null ? ' paused' : '');
+    placeBubble(x);
   }
 
   for (const step of steps) {
@@ -609,8 +615,8 @@ function showScrub(target) {
   line.style.left = x;
   nowbubble.hidden = false;
   nowbubble.classList.add('scrubbing');
-  nowbubble.style.left = x;
   nowbubble.textContent = fmtTimer(target) + ' (' + (delta >= 0 ? '+' : '−') + fmtDur(Math.abs(delta)) + ')';
+  placeBubble(secToPx(target));
 }
 
 function endScrub() {

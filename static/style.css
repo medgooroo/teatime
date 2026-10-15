@@ -63,6 +63,8 @@ input:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: 
   border-bottom: 1px solid var(--border);
 }
 .topbar button { white-space: nowrap; }
+/* button group: when it wraps, the spill-over row stays right-aligned */
+.topbar .actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: inherit; }
 .topbar .brand {
   font-weight: 700;
   text-decoration: none;
@@ -710,6 +712,7 @@ button.starred { border-color: var(--star); color: var(--star); }
   .topbar button { padding: 5px 10px; }
   .topbar .brand { margin-right: 0; }
   .topbar #total { display: none; }   /* the running clock already shows it */
+  .topbar .actions { flex: 1 1 0; min-width: 0; }
   .topbar #recipeName { width: 100%; flex: 1 1 160px; min-width: 0; }
   .home { margin: 14px auto; }
   .lane-name { padding: 0 6px; }
