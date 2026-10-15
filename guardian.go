@@ -295,20 +295,28 @@ func convertGuardian(r *gRecipe, uid string) *Recipe {
 			ingredients = append(ingredients, s+":")
 		}
 		for _, i := range g.IngredientsList {
-			ingredients = append(ingredients, i.Text)
+			// the Guardian sometimes leaves text empty; an empty line is noise
+			if t := strings.TrimSpace(i.Text); t != "" {
+				ingredients = append(ingredients, t)
+			}
 		}
 	}
 
 	desc := strings.TrimSpace(r.Description)
 	var bits []string
+	// serves and timing text is often empty; joining blanks left ", , ." tails
 	if len(r.Serves) > 0 {
-		bits = append(bits, r.Serves[0].Text)
+		if t := strings.TrimSpace(r.Serves[0].Text); t != "" {
+			bits = append(bits, t)
+		}
 	}
 	for _, t := range r.Timings {
-		bits = append(bits, t.Text)
+		if t := strings.TrimSpace(t.Text); t != "" {
+			bits = append(bits, t)
+		}
 	}
 	if len(bits) > 0 {
-		if desc != "" && !strings.HasSuffix(desc, ".") {
+		if desc != "" && !strings.ContainsAny(desc[len(desc)-1:], ".!?") {
 			desc += "."
 		}
 		desc = strings.TrimSpace(desc + " " + strings.Join(bits, ", ") + ".")
