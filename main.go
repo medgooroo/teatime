@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"math"
 	"sort"
 	"strings"
 	"sync"
@@ -52,6 +53,7 @@ type Recipe struct {
 	Starred     bool     `json:"starred,omitempty"`
 	Hidden      bool     `json:"hidden,omitempty"`
 	Tidied      bool     `json:"tidied,omitempty"` // timeline reviewed by hand, not just converted
+	Cooked      int      `json:"cooked,omitempty"` // times the cook has finished it
 }
 
 func (r *Recipe) total() int {
@@ -72,6 +74,7 @@ type Summary struct {
 	Starred      bool   `json:"starred"`
 	Hidden       bool   `json:"hidden,omitempty"`
 	Tidied       bool   `json:"tidied,omitempty"`
+	Cooked       int    `json:"cooked,omitempty"`
 }
 
 // Store keeps one JSON file per recipe under dir; the filename is the id.
@@ -200,6 +203,13 @@ func (st *Store) setStar(id string, on bool) (*Recipe, error) {
 		func(x *indexed) { x.Starred = on })
 }
 
+// addCooked records one more time the recipe was made.
+func (st *Store) addCooked(id string) (*Recipe, error) {
+	return st.setFlag(id,
+		func(r *Recipe) { r.Cooked++ },
+		func(x *indexed) { x.Cooked++ })
+}
+
 // setHidden tucks a recipe away without deleting it; the file (and its
 // Guardian uid) stays on disk, so a sync still knows not to re-import it.
 func (st *Store) setHidden(id string, on bool) (*Recipe, error) {
@@ -282,7 +292,7 @@ func (st *Store) summaries() ([]indexed, error) {
 			Summary: Summary{
 				ID: r.ID, Name: r.Name, Description: r.Description,
 				TotalSeconds: r.total(), Starred: r.Starred, Hidden: r.Hidden,
-				Tidied: r.Tidied,
+				Tidied: r.Tidied, Cooked: r.Cooked,
 			},
 			hay:  strings.ToLower(r.Name + "\n" + r.Description),
 			ings: ings,
@@ -412,6 +422,21 @@ func apiHandler(st *Store) http.HandlerFunc {
 			return
 		}
 
+		// /api/recipes/{id}/cooked — count one more time it was made
+		if rest, ok := strings.CutSuffix(id, "/cooked"); ok {
+			if r.Method != http.MethodPost {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			rec, err := st.addCooked(rest)
+			if err != nil {
+				httpError(w, err)
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"id": rec.ID, "cooked": rec.Cooked})
+			return
+		}
+
 		// /api/recipes/{id}/source — the recipe as originally published
 		if rest, ok := strings.CutSuffix(id, "/source"); ok {
 			if r.Method != http.MethodGet {
@@ -489,13 +514,19 @@ func apiHandler(st *Store) http.HandlerFunc {
 				}
 				sums = append(sums, s.Summary)
 			}
-			// ?shuffle=<seed> serves a browsing order instead of alphabetical;
+			// ?shuffle=<seed> serves a browsing order instead of alphabetical, weighted towards cooked recipes;
 			// the same seed gives the same order, so paging stays consistent
 			if v := r.URL.Query().Get("shuffle"); v != "" {
 				var seed int64
 				fmt.Sscanf(v, "%d", &seed)
 				rnd := rand.New(rand.NewSource(seed))
-				rnd.Shuffle(len(sums), func(i, j int) { sums[i], sums[j] = sums[j], sums[i] })
+				// weighted shuffle: recipes cooked before tend to float to the top
+				keys := make(map[string]float64, len(sums))
+				for _, s := range sums {
+					w := 1 + 2*float64(min(s.Cooked, 20))
+					keys[s.ID] = -math.Log(1-rnd.Float64()) / w
+				}
+				sort.Slice(sums, func(i, j int) bool { return keys[sums[i].ID] < keys[sums[j].ID] })
 			}
 			// a huge store would otherwise ship megabytes to the browser
 			limit := 500
@@ -540,6 +571,9 @@ func apiHandler(st *Store) http.HandlerFunc {
 				return
 			}
 			rec.ID = id
+			if old, err := st.get(id); err == nil {
+				rec.Cooked = old.Cooked // editing never resets the count
+			}
 			if err := st.put(rec); err != nil {
 				httpError(w, err)
 				return

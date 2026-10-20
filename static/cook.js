@@ -718,6 +718,30 @@ function setZoom(v) {
 $('#zoomIn').addEventListener('click', () => setZoom(pxPerMin * 1.5));
 $('#zoomOut').addEventListener('click', () => setZoom(pxPerMin / 1.5));
 
+/* ---------- cooked ---------- */
+
+function renderCooked() {
+  const bar = $('#cookedBar');
+  bar.textContent = '';
+  const note = document.createElement('span');
+  note.className = 'cooked-note';
+  const n = recipes.reduce((a, r) => Math.max(a, r.cooked || 0), 0);
+  note.textContent = n ? `Cooked ${n} time${n === 1 ? '' : 's'}` : 'Not cooked yet';
+  const btn = document.createElement('button');
+  btn.className = 'primary';
+  btn.textContent = 'Cooked!';
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
+    const res = await Promise.all(recipes.map(r =>
+      fetch('/api/recipes/' + encodeURIComponent(r.id) + '/cooked', { method: 'POST' })
+        .then(x => x.ok ? x.json() : null).catch(() => null)));
+    recipes.forEach((r, i) => { if (res[i]) r.cooked = res[i].cooked; });
+    renderCooked();
+  });
+  bar.append(note, btn);
+  bar.hidden = false;
+}
+
 /* ---------- load ---------- */
 
 async function load() {
@@ -777,6 +801,7 @@ async function load() {
   } catch { /* fresh state */ }
 
   buildIngredients();
+  renderCooked();
   update();
   setInterval(update, 1000);
 

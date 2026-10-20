@@ -110,7 +110,7 @@ async function toggleStar(id, on) {
   if (!res.ok) return;
   const s = summaries.get(id);
   if (s) s.starred = on;
-  refresh();
+  refresh(true);
 }
 
 // starred recipes get their own section, tucked away while a search is on
@@ -253,7 +253,7 @@ async function openRecipe(id) {
       summaries.delete(r.id);
     }
     closeDetail();
-    refresh();
+    refresh(true);
   };
   card.append(actionRow(r.hidden ? [
     { label: 'Bring back', cls: 'primary', onClick: () => setHidden(false) },
@@ -271,7 +271,7 @@ async function openRecipe(id) {
     {
       label: inMeal(r.id) ? 'In meal' : 'Add to meal',
       disabled: inMeal(r.id),
-      onClick: () => { meal.push(r.id); saveMeal(); closeDetail(); refresh(); },
+      onClick: () => { meal.push(r.id); saveMeal(); closeDetail(); refresh(true); },
     },
     { label: 'Edit', href: 'editor.html?id=' + encodeURIComponent(r.id) },
     { label: 'Hide', cls: 'danger', onClick: () => setHidden(true) },
@@ -344,7 +344,7 @@ function openMeal(m) {
     { label: 'Cook', cls: 'primary', href: 'cook.html?meal=' + encodeURIComponent(m.id) },
     {
       label: 'Load into builder',
-      onClick: () => { meal = [...m.recipeIds]; saveMeal(); closeDetail(); refresh(); },
+      onClick: () => { meal = [...m.recipeIds]; saveMeal(); closeDetail(); refresh(true); },
     },
     { label: 'Hide', cls: 'danger', onClick: () => setMealHidden(true) },
   ]));
@@ -424,7 +424,10 @@ async function fetchMeals() {
 
 /* ---------- load ---------- */
 
-async function refresh() {
+// keep: reload in place (same depth, same scroll) after an action on a card
+async function refresh(keep = false) {
+  const depth = Math.max(PAGE, results.querySelectorAll('.card').length);
+  const y = window.scrollY;
   const q = searchBox.value.trim();
   const ings = ingBox.value.split(',').map(s => s.trim()).filter(Boolean);
   searching = !!(q || ings.length);
@@ -433,12 +436,13 @@ async function refresh() {
   const params = new URLSearchParams();
   if (q) params.set('q', q);
   for (const i of ings) params.append('ing', i);
-  // browsing gets a shuffled order; a search stays alphabetical
-  if (!searching) params.set('shuffle', shuffleSeed);
+  // browsing and searching both get the shuffled order
+  params.set('shuffle', shuffleSeed);
   params.set('limit', PAGE);
   listParams = params.toString();
+  if (keep) params.set('limit', depth);
 
-  const res = await fetch('/api/recipes?' + listParams);
+  const res = await fetch('/api/recipes?' + params);
   if (gen !== listGen) return;   // a newer search superseded this one
   if (!res.ok) {
     results.innerHTML = '<p class="empty">Failed to load recipes.</p>';
@@ -468,6 +472,7 @@ async function refresh() {
   renderMeal();
   renderMeals(q);
   renderStarred();
+  if (keep) window.scrollTo(0, y);
 }
 
 /* ---------- continuous scroll ---------- */

@@ -767,3 +767,16 @@ button.starred { border-color: var(--star); color: var(--star); }
   z-index: 3;
   pointer-events: none;
 }
+
+/* end-of-recipe "cooked!" bar */
+#cookedBar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 8px 14px;
+  border-top: 1px solid var(--border, rgba(128, 128, 128, 0.3));
+}
+#cookedBar[hidden] { display: none; }
+#cookedBar .cooked-note { opacity: 0.7; }
