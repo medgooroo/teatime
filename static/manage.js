@@ -2,34 +2,17 @@
 
 const $ = s => document.querySelector(s);
 
-// conversions put the cook's own notes at the end of the description
-function stripNotes(desc) {
-  const i = (desc || '').indexOf('Notes:');
-  return (i < 0 ? desc || '' : desc.slice(0, i)).trim();
-}
-
-// a card with action buttons instead of a click-through
-function itemCard(title, sub, foot, actions) {
+// one compact row: a name, a short note, and action buttons
+function itemRow(title, foot, actions) {
   const el = document.createElement('div');
-  el.className = 'card static';
+  el.className = 'hid-row';
   const h = document.createElement('span');
-  h.className = 'card-title';
+  h.className = 'hid-name';
   h.textContent = title;
-  el.append(h);
-  if (sub) {
-    const s = document.createElement('span');
-    s.className = 'card-sub';
-    s.textContent = sub;
-    el.append(s);
-  }
-  if (foot) {
-    const f = document.createElement('span');
-    f.className = 'card-foot';
-    f.textContent = foot;
-    el.append(f);
-  }
-  const row = document.createElement('div');
-  row.className = 'card-actions';
+  const f = document.createElement('span');
+  f.className = 'hid-foot';
+  f.textContent = foot || '';
+  el.append(h, f);
   for (const a of actions) {
     const b = document.createElement('button');
     b.className = a.cls || '';
@@ -38,9 +21,8 @@ function itemCard(title, sub, foot, actions) {
       b.disabled = true;
       try { await a.onClick(b); } finally { b.disabled = false; }
     });
-    row.append(b);
+    el.append(b);
   }
-  el.append(row);
   return el;
 }
 
@@ -55,7 +37,7 @@ async function loadAll() {
   const rl = $('#hRecipesList');
   rl.textContent = '';
   for (const r of recipes) {
-    rl.append(itemCard(r.name, stripNotes(r.description), fmtDur(r.totalSeconds), [
+    rl.append(itemRow(r.name, fmtDur(r.totalSeconds), [
       {
         label: 'Bring back', cls: 'primary',
         onClick: async () => {
@@ -70,7 +52,7 @@ async function loadAll() {
   const ml = $('#hMealsList');
   ml.textContent = '';
   for (const m of meals) {
-    ml.append(itemCard(m.name, '',
+    ml.append(itemRow(m.name,
       m.recipeIds.length + (m.recipeIds.length === 1 ? ' recipe' : ' recipes'), [
       {
         label: 'Bring back', cls: 'primary',

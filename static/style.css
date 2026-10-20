@@ -787,3 +787,23 @@ button.starred { border-color: var(--star); color: var(--star); }
 .user-row .user-name { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
 .user-row select { padding: 6px; }
 .panel input[type=text], .panel input[type=password] { padding: 7px 10px; min-width: 0; flex: 1 1 160px; }
+
+/* hidden items on Manage: a short scrolling list, not a wall of cards */
+.scroll-list {
+  max-height: 15rem;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+.hid-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.hid-row:last-child { border-bottom: none; }
+.hid-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hid-foot { flex: none; color: var(--muted); font-size: 13px; }
+.hid-row button { flex: none; padding: 4px 10px; }
