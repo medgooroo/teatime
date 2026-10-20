@@ -95,10 +95,10 @@ func (a *Accounts) setCookie(w http.ResponseWriter, r *http.Request, u *User) {
 // icons phones fetch on their own without credentials
 func publicPath(p string) bool {
 	switch p {
-	case "/login", "/logout", "/style.css", "/favicon.svg", "/favicon.ico":
+	case "/login", "/logout", "/style.css", "/theme.js", "/favicon.svg", "/favicon.ico":
 		return true
 	}
-	return strings.HasPrefix(p, "/apple-touch-icon")
+	return strings.HasPrefix(p, "/apple-touch-icon") || strings.HasPrefix(p, "/house/")
 }
 
 func (a *Accounts) wrap(next http.Handler) http.Handler {
@@ -304,6 +304,9 @@ var loginPage = template.Must(template.New("login").Parse(`<!doctype html>
 <title>Sign in — teatime</title>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<script src="/theme.js"></script>
+<link rel="stylesheet" href="/house/tokens.css">
+<link rel="stylesheet" href="/house/house.css">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>

@@ -47,11 +47,11 @@ function card(opts) {
 
   if (opts.onStar) {
     const star = document.createElement('button');
-    star.className = 'card-star' + (opts.starred ? ' on' : '');
+    star.className = 'card-star';
     star.type = 'button';
     star.title = opts.starred ? 'Remove from this week' : 'Save for this week';
     star.setAttribute('aria-pressed', String(!!opts.starred));
-    star.textContent = opts.starred ? '★' : '☆';
+    star.textContent = opts.starred ? 'Saved' : 'Save';
     star.addEventListener('click', e => { e.stopPropagation(); opts.onStar(); });
     el.append(star);
   }
@@ -165,11 +165,7 @@ function renderMeals(q) {
 function resetDetailCard() {
   const card = $('#detailCard');
   card.textContent = '';
-  const close = document.createElement('button');
-  close.type = 'button';
-  close.className = 'detail-close';
-  close.setAttribute('aria-label', 'Close');
-  close.textContent = '×';
+  const close = iconButton('close', 'Close', 'detail-close');
   close.addEventListener('click', closeDetail);
   card.append(close);
   return card;
@@ -384,9 +380,7 @@ function renderMeal() {
     const dur = document.createElement('span');
     dur.className = 'total';
     dur.textContent = s ? fmtDur(s.totalSeconds) : '';
-    const rm = document.createElement('button');
-    rm.textContent = '×';
-    rm.title = 'Remove from meal';
+    const rm = iconButton('close', 'Remove from meal');
     rm.addEventListener('click', () => {
       meal = meal.filter(m => m !== id);
       saveMeal();
@@ -617,6 +611,7 @@ async function start() {
       const me = await res.json();
       mealKey = 'teatime.meal.' + me.name;
       $('#syncBtn').hidden = me.role !== 'admin';
+      $('#meStatus').textContent = me.name;
     }
   } catch { /* fall back to the shared key */ }
   loadMealDraft();

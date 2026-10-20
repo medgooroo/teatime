@@ -51,6 +51,13 @@ TEATIME_PASSWORD=…
 then rebuild. Remove any Caddy `basic_auth` for the site afterwards; with it in
 place phones still get the browser's auth prompt.
 
+## Style
+
+The UI follows the House design system (tokens and component CSS vendored in
+`static/house/`, theme picked from the device by `static/theme.js`). Lanes use its
+series colours, and the cook/editor timeline is a House "screen". Page styling is in
+`static/style.css`.
+
 ## Cooking
 
 Tap a step for its card. On phones the timeline keeps a minimum scale and

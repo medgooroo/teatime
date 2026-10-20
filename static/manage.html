@@ -6,15 +6,22 @@
 <title>Manage — teatime</title>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<script src="/theme.js"></script>
+<link rel="stylesheet" href="/house/tokens.css">
+<link rel="stylesheet" href="/house/house.css">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <header class="topbar">
   <a class="brand" href="/">teatime</a>
-  <span class="title">Manage</span>
+  <nav aria-label="Sections">
+    <a href="/">Recipes</a>
+    <a href="manage.html" aria-current="page">Manage</a>
+  </nav>
   <span class="spacer"></span>
-  <a href="/logout"><button>Sign out</button></a>
-  <a href="/"><button>Back to recipes</button></a>
+  <div class="actions">
+    <a href="/logout"><button>Sign out</button></a>
+  </div>
 </header>
 <main class="home">
   <section id="hRecipes" hidden>

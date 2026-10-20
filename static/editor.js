@@ -78,21 +78,17 @@ function renderLaneNames() {
       input.value = lane.name;
       markDirty();
     });
-    const up = laneMoveBtn('↑', 'Move lane up', i, -1);
-    const down = laneMoveBtn('↓', 'Move lane down', i, 1);
-    const del = document.createElement('button');
-    del.textContent = '×';
-    del.title = 'Delete lane';
+    const up = laneMoveBtn('chevron-up', 'Move lane up', i, -1);
+    const down = laneMoveBtn('chevron-down', 'Move lane down', i, 1);
+    const del = iconButton('close', 'Delete lane');
     del.addEventListener('click', () => deleteLane(lane));
     div.append(input, up, down, del);
     col.append(div);
   });
 }
 
-function laneMoveBtn(label, title, i, delta) {
-  const btn = document.createElement('button');
-  btn.textContent = label;
-  btn.title = title;
+function laneMoveBtn(icon, title, i, delta) {
+  const btn = iconButton(icon, title);
   const j = i + delta;
   btn.disabled = j < 0 || j >= recipe.lanes.length;
   btn.addEventListener('click', () => {
@@ -132,7 +128,7 @@ function renderRows() {
 
   // vertical gridlines: strong every 5 min, light every minute when zoomed in
   const five = pxPerMin * 5;
-  let bg = `repeating-linear-gradient(to right, var(--grid-strong) 0 1px, transparent 1px ${five}px)`;
+  let bg = `repeating-linear-gradient(to right, var(--grid-frame) 0 1px, transparent 1px ${five}px)`;
   if (pxPerMin >= 6) {
     bg += `, repeating-linear-gradient(to right, var(--grid) 0 1px, transparent 1px ${pxPerMin}px)`;
   }
@@ -159,6 +155,7 @@ function positionBlock(el, step) {
   el.style.top = li * rowH + 5 + 'px';
   el.style.width = Math.max(secToPx(step.duration), 24) + 'px';
   el.style.setProperty('--step-bg', laneColour(li));
+  el.style.setProperty('--step-fg', onColour(laneColour(li)));
 }
 
 function stepBlock(step) {
