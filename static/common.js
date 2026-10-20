@@ -19,33 +19,8 @@ const TOUCH_MIN_PX_PER_MIN = 14;
 const isTouch = () => matchMedia('(pointer: coarse)').matches || innerWidth <= 700;
 const fitFloor = () => isTouch() ? TOUCH_MIN_PX_PER_MIN : 2;
 
-// House series colours (cat-1 to cat-8): a lane keeps its colour everywhere
-const LANE_COLOURS = ['#a7267f', '#4a59bd', '#00a078', '#925600', '#bb6cd9', '#8b9a3c', '#0f7845', '#915ea4'];
+const LANE_COLOURS = ['#4f8a67', '#a2734f', '#5c7cb8', '#b06584', '#7e9a55', '#8f6fb5'];
 const laneColour = i => LANE_COLOURS[((i % LANE_COLOURS.length) + LANE_COLOURS.length) % LANE_COLOURS.length];
-
-// text colour for a lane-coloured fill: whichever of white and ground reads better
-function onColour(hex) {
-  const lin = c => { c /= 255; return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
-  const n = parseInt(hex.slice(1), 16);
-  const L = 0.2126 * lin(n >> 16) + 0.7152 * lin((n >> 8) & 255) + 0.0722 * lin(n & 255);
-  return 1.05 / (L + 0.05) >= (L + 0.05) / 0.058 ? '#ffffff' : '#151613';
-}
-
-// a House icon button: one glyph, named by its label
-const ICON_PATHS = {
-  close: 'M3.5 3.5 L12.5 12.5 M12.5 3.5 L3.5 12.5',
-  'chevron-up': 'M3 10 L8 5 L13 10',
-  'chevron-down': 'M3 6 L8 11 L13 6',
-};
-function iconButton(name, label, cls = '') {
-  const b = document.createElement('button');
-  b.type = 'button';
-  b.className = ('h-iconbtn ' + cls).trim();
-  b.setAttribute('aria-label', label);
-  b.title = label;
-  b.innerHTML = `<svg class="h-icon" viewBox="0 0 16 16" aria-hidden="true"><path d="${ICON_PATHS[name]}"/></svg>`;
-  return b;
-}
 
 // "1h 5m", "45s", "5m" — seconds in, human duration out
 function fmtDur(sec) {

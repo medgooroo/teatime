@@ -301,7 +301,7 @@ function render() {
   rows.style.width = width + 'px';
   rows.style.height = Math.max(1, lanes.length) * rowH + 'px';
   const five = pxPerMin * 5;
-  let bg = `repeating-linear-gradient(to right, var(--grid-frame) 0 1px, transparent 1px ${five}px)`;
+  let bg = `repeating-linear-gradient(to right, var(--grid-strong) 0 1px, transparent 1px ${five}px)`;
   if (pxPerMin >= 6) {
     bg += `, repeating-linear-gradient(to right, var(--grid) 0 1px, transparent 1px ${pxPerMin}px)`;
   }
@@ -324,7 +324,6 @@ function render() {
     el.style.top = li * rowH + 5 + 'px';
     el.style.width = Math.max(secToPx(step.duration), 24) + 'px';
     el.style.setProperty('--step-bg', lanes[li].colour);
-    el.style.setProperty('--step-fg', onColour(lanes[li].colour));
     const name = document.createElement('span');
     name.className = 'name';
     name.textContent = step.name;
@@ -474,7 +473,6 @@ function openStep(key) {
   const big = $('#bigstep');
   big.textContent = '';
   big.style.setProperty('--step-bg', lane.colour);
-  big.style.setProperty('--step-fg', onColour(lane.colour));
 
   const name = document.createElement('div');
   name.className = 'name';
@@ -731,7 +729,7 @@ function renderCooked() {
   note.textContent = n ? `Cooked ${n} time${n === 1 ? '' : 's'}` : 'Not cooked yet';
   const btn = document.createElement('button');
   btn.className = 'primary';
-  btn.textContent = 'Mark as cooked';
+  btn.textContent = 'Cooked!';
   btn.addEventListener('click', async () => {
     btn.disabled = true;
     const res = await Promise.all(recipes.map(r =>

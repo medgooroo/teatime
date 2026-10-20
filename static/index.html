@@ -6,24 +6,15 @@
 <title>teatime</title>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
-<script src="/theme.js"></script>
-<link rel="stylesheet" href="/house/tokens.css">
-<link rel="stylesheet" href="/house/house.css">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <header class="topbar">
   <a class="brand" href="/">teatime</a>
-  <nav aria-label="Sections">
-    <a href="/" aria-current="page">Recipes</a>
-    <a href="manage.html">Manage</a>
-  </nav>
   <span class="spacer"></span>
-  <span class="reading" id="meStatus"></span>
-  <div class="actions">
-    <button id="syncBtn">Check for new recipes</button>
-    <a href="editor.html"><button class="primary">New recipe</button></a>
-  </div>
+  <button id="syncBtn">Check for new recipes</button>
+  <a href="manage.html"><button>Manage</button></a>
+  <a href="editor.html"><button class="primary">New recipe</button></a>
 </header>
 <main class="home">
   <div class="searchbar">
