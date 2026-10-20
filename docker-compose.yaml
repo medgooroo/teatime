@@ -7,10 +7,13 @@ services:
     volumes:
       - tea-data:/data
     restart: unless-stopped
-    # login for the site and the API; set it in a .env file beside this one
-    # (gitignored). Unset means no login at all.
+    # first-run admin (TEATIME_USER, default "admin") for the site and the API;
+    # set it in a .env file beside this one (gitignored). Once accounts exist
+    # these are ignored and users are managed in the app. Unset on a fresh
+    # volume means no login at all.
     environment:
       TEATIME_PASSWORD: ${TEATIME_PASSWORD:-}
+      TEATIME_USER: ${TEATIME_USER:-}
 volumes:
   tea-data:
 networks:

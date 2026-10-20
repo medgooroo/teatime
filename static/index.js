@@ -18,11 +18,12 @@ let listTotal = 0;        // matches on the server
 let listGen = 0;          // stale-response guard
 let loadingMore = false;
 
-try {
-  meal = JSON.parse(localStorage.getItem('teatime.meal') || '[]');
-} catch { meal = []; }
+let mealKey = 'teatime.meal';   // the working meal is per person, so a shared device keeps them apart
 
-const saveMeal = () => localStorage.setItem('teatime.meal', JSON.stringify(meal));
+const loadMealDraft = () => {
+  try { meal = JSON.parse(localStorage.getItem(mealKey) || '[]'); } catch { meal = []; }
+};
+const saveMeal = () => localStorage.setItem(mealKey, JSON.stringify(meal));
 const inMeal = id => meal.includes(id);
 
 // conversions put the cook's own notes at the end of the description
@@ -609,4 +610,18 @@ async function runSync(query = '') {
 
 $('#syncBtn').addEventListener('click', () => runSync());
 
-fetchMeals().then(refresh);
+async function start() {
+  try {
+    const res = await fetch('/api/me');
+    if (res.ok) {
+      const me = await res.json();
+      mealKey = 'teatime.meal.' + me.name;
+      $('#syncBtn').hidden = me.role !== 'admin';
+    }
+  } catch { /* fall back to the shared key */ }
+  loadMealDraft();
+  await fetchMeals();
+  refresh();
+}
+
+start();

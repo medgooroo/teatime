@@ -2,20 +2,18 @@ package main
 
 // Login. Browsers get a long-lived signed cookie from a login page, so a phone
 // signs in once instead of re-answering a basic-auth prompt every time the tab
-// is evicted. Scripts (curl, backups, Claude) keep using basic auth with the
-// same credentials. Both are off unless TEATIME_PASSWORD is set, so a local
-// "go run ." stays open.
+// is evicted. Scripts (curl, backups, Claude) use basic auth with the same
+// name and password. Accounts live in accounts.go; with none the site is open.
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
-	"crypto/subtle"
 	"encoding/base64"
+	"encoding/json"
 	"html/template"
-	"log"
 	"net/http"
 	"net/url"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -27,58 +25,66 @@ const (
 	renewWithin   = 30 * 24 * time.Hour  // reissue when this close to expiry
 )
 
-type auth struct {
-	user, pass string
-	key        []byte // HMAC key; derived from the password, so changing it signs everyone out
+// Principal is who a request acts as.
+type Principal struct {
+	Name  string
+	Admin bool
 }
 
-func newAuth() *auth {
-	pass := os.Getenv("TEATIME_PASSWORD")
-	if pass == "" {
-		log.Printf("TEATIME_PASSWORD not set: no login required")
-		return nil
+type principalKey struct{}
+
+func who(r *http.Request) *Principal {
+	p, _ := r.Context().Value(principalKey{}).(*Principal)
+	if p == nil {
+		return &Principal{Name: localUser, Admin: true}
 	}
-	user := os.Getenv("TEATIME_USER")
-	if user == "" {
-		user = "admin"
-	}
-	k := sha256.Sum256([]byte("teatime-session\x00" + pass))
-	return &auth{user: user, pass: pass, key: k[:]}
+	return p
 }
 
-func (a *auth) sign(exp int64) string {
+func principalOf(u *User) *Principal { return &Principal{Name: u.Name, Admin: u.Role == roleAdmin} }
+
+func (a *Accounts) sign(msg string) string {
 	m := hmac.New(sha256.New, a.key)
-	m.Write([]byte(strconv.FormatInt(exp, 10)))
-	return strconv.FormatInt(exp, 10) + "." + base64.RawURLEncoding.EncodeToString(m.Sum(nil))
+	m.Write([]byte(msg))
+	return base64.RawURLEncoding.EncodeToString(m.Sum(nil))
 }
 
-// expiry of a valid session cookie, or 0
-func (a *auth) session(r *http.Request) int64 {
+// cookie value: name.gen.expiry.signature
+func (a *Accounts) cookieValue(u *User, exp int64) string {
+	body := u.Name + "." + strconv.Itoa(u.Gen) + "." + strconv.FormatInt(exp, 10)
+	return body + "." + a.sign(body)
+}
+
+// the signed-in user and the cookie's expiry, or nil
+func (a *Accounts) session(r *http.Request) (*User, int64) {
 	c, err := r.Cookie(sessionCookie)
 	if err != nil {
-		return 0
+		return nil, 0
 	}
-	expStr, _, ok := strings.Cut(c.Value, ".")
-	exp, err := strconv.ParseInt(expStr, 10, 64)
-	if !ok || err != nil || time.Now().Unix() > exp {
-		return 0
+	parts := strings.Split(c.Value, ".")
+	if len(parts) != 4 {
+		return nil, 0
 	}
-	if !hmac.Equal([]byte(c.Value), []byte(a.sign(exp))) {
-		return 0
+	body := strings.Join(parts[:3], ".")
+	if !hmac.Equal([]byte(parts[3]), []byte(a.sign(body))) {
+		return nil, 0
 	}
-	return exp
+	gen, err1 := strconv.Atoi(parts[1])
+	exp, err2 := strconv.ParseInt(parts[2], 10, 64)
+	if err1 != nil || err2 != nil || time.Now().Unix() > exp {
+		return nil, 0
+	}
+	u := a.get(parts[0])
+	if u == nil || u.Gen != gen {
+		return nil, 0
+	}
+	return u, exp
 }
 
-func (a *auth) checkPass(user, pass string) bool {
-	u := subtle.ConstantTimeCompare([]byte(user), []byte(a.user))
-	p := subtle.ConstantTimeCompare([]byte(pass), []byte(a.pass))
-	return u&p == 1
-}
-
-func (a *auth) setCookie(w http.ResponseWriter, r *http.Request) {
+func (a *Accounts) setCookie(w http.ResponseWriter, r *http.Request, u *User) {
 	exp := time.Now().Add(sessionTTL)
 	http.SetCookie(w, &http.Cookie{
-		Name: sessionCookie, Value: a.sign(exp.Unix()), Path: "/",
+		Name: sessionCookie, Value: a.cookieValue(u, exp.Unix()), Path: "/",
 		Expires: exp, MaxAge: int(sessionTTL.Seconds()),
 		HttpOnly: true, SameSite: http.SameSiteLaxMode,
 		Secure: r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
@@ -95,9 +101,14 @@ func publicPath(p string) bool {
 	return strings.HasPrefix(p, "/apple-touch-icon")
 }
 
-func (a *auth) wrap(next http.Handler) http.Handler {
-	if a == nil {
-		return next
+func (a *Accounts) wrap(next http.Handler) http.Handler {
+	serve := func(w http.ResponseWriter, r *http.Request, p *Principal) {
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), principalKey{}, p)))
+	}
+	if a.open {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			serve(w, r, &Principal{Name: localUser, Admin: true})
+		})
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -109,16 +120,18 @@ func (a *auth) wrap(next http.Handler) http.Handler {
 			http.Redirect(w, r, "/login", http.StatusSeeOther)
 			return
 		}
-		if exp := a.session(r); exp != 0 {
+		if u, exp := a.session(r); u != nil {
 			if time.Until(time.Unix(exp, 0)) < renewWithin {
-				a.setCookie(w, r)
+				a.setCookie(w, r, u)
 			}
-			next.ServeHTTP(w, r)
+			serve(w, r, principalOf(u))
 			return
 		}
-		if u, p, ok := r.BasicAuth(); ok && a.checkPass(u, p) {
-			next.ServeHTTP(w, r)
-			return
+		if name, pass, ok := r.BasicAuth(); ok {
+			if u := a.authenticateBasic(name, pass); u != nil {
+				serve(w, r, principalOf(u))
+				return
+			}
 		}
 		if publicPath(r.URL.Path) {
 			next.ServeHTTP(w, r)
@@ -142,12 +155,13 @@ func safeNext(s string) string {
 	return s
 }
 
-func (a *auth) login(w http.ResponseWriter, r *http.Request) {
+func (a *Accounts) login(w http.ResponseWriter, r *http.Request) {
 	next := safeNext(r.FormValue("next"))
 	failed := false
+	name := strings.TrimSpace(r.PostFormValue("username"))
 	if r.Method == http.MethodPost {
-		if a.checkPass(a.user, r.PostFormValue("password")) {
-			a.setCookie(w, r)
+		if u := a.authenticate(name, r.PostFormValue("password")); u != nil {
+			a.setCookie(w, r, u)
 			http.Redirect(w, r, next, http.StatusSeeOther)
 			return
 		}
@@ -156,7 +170,130 @@ func (a *auth) login(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	loginPage.Execute(w, map[string]any{"Next": next, "Failed": failed, "User": a.user})
+	loginPage.Execute(w, map[string]any{"Next": next, "Failed": failed, "User": name})
+}
+
+/* ---------- account API ---------- */
+
+func readJSON(w http.ResponseWriter, r *http.Request, v any) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
+	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
+		http.Error(w, "bad request body", http.StatusBadRequest)
+		return false
+	}
+	return true
+}
+
+func methodNotAllowed(w http.ResponseWriter) {
+	http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+}
+
+// /api/me — who am I; /api/me/password — change my own password
+func (a *Accounts) meHandler(w http.ResponseWriter, r *http.Request) {
+	p := who(r)
+	switch strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/me"), "/") {
+	case "":
+		if r.Method != http.MethodGet {
+			methodNotAllowed(w)
+			return
+		}
+		role := roleUser
+		if p.Admin {
+			role = roleAdmin
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"name": p.Name, "role": role, "open": a.open})
+	case "password":
+		if r.Method != http.MethodPost {
+			methodNotAllowed(w)
+			return
+		}
+		if a.open {
+			http.Error(w, "no accounts: set TEATIME_PASSWORD first", http.StatusBadRequest)
+			return
+		}
+		var body struct{ Current, New string }
+		if !readJSON(w, r, &body) {
+			return
+		}
+		if a.authenticate(p.Name, body.Current) == nil {
+			time.Sleep(700 * time.Millisecond)
+			http.Error(w, "current password is wrong", http.StatusForbidden)
+			return
+		}
+		if err := a.update(p.Name, body.New, ""); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if u := a.get(p.Name); u != nil {
+			a.setCookie(w, r, u) // other devices are signed out; this one stays in
+		}
+		w.WriteHeader(http.StatusNoContent)
+	default:
+		http.NotFound(w, r)
+	}
+}
+
+// /api/users — admin only
+func (a *Accounts) usersHandler(ms *MealStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		p := who(r)
+		if !p.Admin {
+			http.Error(w, "admin only", http.StatusForbidden)
+			return
+		}
+		if a.open {
+			http.Error(w, "no accounts: set TEATIME_PASSWORD first", http.StatusBadRequest)
+			return
+		}
+		name := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/users"), "/")
+		fail := func(err error) {
+			code := http.StatusBadRequest
+			switch err {
+			case errExists:
+				code = http.StatusConflict
+			case errNoUser:
+				code = http.StatusNotFound
+			}
+			http.Error(w, err.Error(), code)
+		}
+		switch {
+		case name == "" && r.Method == http.MethodGet:
+			writeJSON(w, http.StatusOK, a.list())
+		case name == "" && r.Method == http.MethodPost:
+			var body struct{ Name, Password, Role string }
+			if !readJSON(w, r, &body) {
+				return
+			}
+			if err := a.add(body.Name, body.Password, body.Role); err != nil {
+				fail(err)
+				return
+			}
+			w.WriteHeader(http.StatusCreated)
+		case name != "" && r.Method == http.MethodPut:
+			var body struct{ Password, Role string }
+			if !readJSON(w, r, &body) {
+				return
+			}
+			if err := a.update(name, body.Password, body.Role); err != nil {
+				fail(err)
+				return
+			}
+			w.WriteHeader(http.StatusNoContent)
+		case name != "" && r.Method == http.MethodDelete:
+			if name == p.Name {
+				http.Error(w, "you cannot remove yourself", http.StatusBadRequest)
+				return
+			}
+			if err := a.remove(name); err != nil {
+				fail(err)
+				return
+			}
+			ms.dropOwner(name)
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			methodNotAllowed(w)
+		}
+	}
 }
 
 var loginPage = template.Must(template.New("login").Parse(`<!doctype html>
@@ -171,10 +308,11 @@ var loginPage = template.Must(template.New("login").Parse(`<!doctype html>
 <form class="login" method="post" action="/login">
   <h1>teatime</h1>
   <input type="hidden" name="next" value="{{.Next}}">
-  <input type="hidden" name="username" value="{{.User}}" autocomplete="username">
+  <label for="un">Name</label>
+  <input id="un" type="text" name="username" value="{{.User}}" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" {{if not .User}}autofocus{{end}} required>
   <label for="pw">Password</label>
-  <input id="pw" type="password" name="password" autocomplete="current-password" autofocus required>
-  {{if .Failed}}<p class="login-error">Wrong password.</p>{{end}}
+  <input id="pw" type="password" name="password" autocomplete="current-password" {{if .User}}autofocus{{end}} required>
+  {{if .Failed}}<p class="login-error">Wrong name or password.</p>{{end}}
   <button class="primary" type="submit">Sign in</button>
   <p class="login-note">You stay signed in on this device.</p>
 </form>

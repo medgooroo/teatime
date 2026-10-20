@@ -19,14 +19,29 @@ not `127.0.0.1` — the log warns when this happens. Use `-addr :8090` to avoid 
 
 ## Login
 
-Set `TEATIME_PASSWORD` and the site asks for it once per device, then keeps a
-signed cookie for 400 days (renewed as it's used). Scripts use basic auth with
-the same password and user `admin` (or `TEATIME_USER`):
-`curl -u admin:<password> …`. With no password set there is no login, which
-suits `go run .` locally. Sign out is on the Manage page. Changing the password
-signs every device out.
+Accounts live in the data directory (`.users.json`, password hashes only; and
+`.session-key`). The first start with `TEATIME_PASSWORD` set creates an admin
+called `admin` (or `TEATIME_USER`) with that password and hands them the stars,
+cook counts and saved meals the site had before accounts existed. After that the
+variables are ignored and everything is managed on the **Manage** page.
 
-For the Docker deployment, put the password in a `.env` file beside
+- **Admins** add, remove and reset users, change roles, run Guardian checks,
+  take and restore backups, and may delete recipes over the API.
+- **Everyone** can browse, cook and edit recipes, and change their own password.
+- **Personal:** stars ("This week"), hidden recipes, cook counts (they steer the
+  browse order) and saved meals. Recipes are shared. A recipe hidden before
+  accounts existed, or re-imported hidden after a Guardian deletion, stays hidden
+  for everyone until someone brings it back.
+
+The browser keeps a signed cookie for 400 days (renewed as it's used). Scripts
+use basic auth with any account: `curl -u admin:<password> …`. A password change
+signs that user out of their other devices. With no accounts and no
+`TEATIME_PASSWORD` there is no login, which suits `go run .` locally; everyone
+then acts as the admin `local`. Locked out? Stop the server, delete
+`data/.users.json` and start with `TEATIME_PASSWORD` set; stars and cook counts
+are kept per name and reattach to a user of the same name.
+
+For the Docker deployment, put the first admin's password in a `.env` file beside
 `docker-compose.yaml` (gitignored):
 
 ```

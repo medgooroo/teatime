@@ -25,7 +25,30 @@
   </section>
   <p id="noneHidden" class="empty" hidden>Nothing is hidden.</p>
 
-  <section id="backup">
+  <section id="account" class="panel">
+    <h2>Account</h2>
+    <p class="backup-note">Signed in as <strong id="meName"></strong><span id="meRole"></span>.</p>
+    <form id="pwForm" class="backup-row">
+      <input id="pwCurrent" type="password" placeholder="Current password" autocomplete="current-password" required>
+      <input id="pwNew" type="password" placeholder="New password (8+ characters)" autocomplete="new-password" minlength="8" required>
+      <button class="primary" type="submit">Change password</button>
+    </form>
+    <p id="pwStatus" class="backup-note"></p>
+  </section>
+
+  <section id="users" class="panel" hidden>
+    <h2>Users</h2>
+    <div id="userList"></div>
+    <form id="userForm" class="backup-row">
+      <input id="newName" type="text" placeholder="Name" autocapitalize="none" autocomplete="off" required>
+      <input id="newPass" type="password" placeholder="Password (8+ characters)" autocomplete="new-password" minlength="8" required>
+      <select id="newRole"><option value="user">User</option><option value="admin">Admin</option></select>
+      <button class="primary" type="submit">Add user</button>
+    </form>
+    <p id="userStatus" class="backup-note"></p>
+  </section>
+
+  <section id="backup" class="panel" hidden>
     <h2>Backup</h2>
     <div class="backup-row">
       <button id="backupBtn">Download a backup</button>

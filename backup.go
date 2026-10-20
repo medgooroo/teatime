@@ -1,8 +1,9 @@
 package main
 
 // Backup and restore of the whole recipe store as a single .tar.gz, driven from
-// the front page. The archive holds the data directory verbatim — recipes, saved
-// meals, and the Guardian bookkeeping — so a restore reproduces the store exactly.
+// the Manage page (admins only). The archive holds the data directory — recipes,
+// saved meals, each person's stars and cook counts, and the Guardian bookkeeping —
+// so a restore reproduces the store. Accounts and passwords are never included.
 
 import (
 	"archive/tar"
@@ -21,9 +22,9 @@ import (
 )
 
 // Entries we are willing to write back out of an archive: a recipe or dotfile at
-// the top level, or a saved meal one directory down. Anything else — absolute
+// the top level, or a saved meal or personal state file one directory down. Anything else — absolute
 // paths, traversal, unexpected directories — is refused.
-var backupEntryRe = regexp.MustCompile(`^(meals/)?\.?[a-z0-9][a-z0-9-]*\.json$`)
+var backupEntryRe = regexp.MustCompile(`^((meals|users)/)?\.?[a-z0-9][a-z0-9-]*\.json$`)
 
 const maxRestoreBytes = 500 << 20
 
@@ -33,13 +34,13 @@ func safeEntryName(name string) (string, bool) {
 	if name == "" || path.IsAbs(name) || strings.Contains(name, "..") {
 		return "", false
 	}
-	if !backupEntryRe.MatchString(name) {
+	if !backupEntryRe.MatchString(name) || name == ".users.json" {
 		return "", false
 	}
 	return name, true
 }
 
-// files worth archiving: recipes and dotfiles at the top, meals below
+// files worth archiving: recipes and dotfiles at the top, meals and personal state below
 func backupFiles(dir string) ([]string, error) {
 	var out []string
 	entries, err := os.ReadDir(dir)
@@ -48,21 +49,21 @@ func backupFiles(dir string) ([]string, error) {
 	}
 	for _, e := range entries {
 		if e.IsDir() {
-			if e.Name() != "meals" {
+			if e.Name() != "meals" && e.Name() != "users" {
 				continue
 			}
-			meals, err := os.ReadDir(filepath.Join(dir, "meals"))
+			files, err := os.ReadDir(filepath.Join(dir, e.Name()))
 			if err != nil {
 				continue
 			}
-			for _, m := range meals {
+			for _, m := range files {
 				if !m.IsDir() && strings.HasSuffix(m.Name(), ".json") {
-					out = append(out, "meals/"+m.Name())
+					out = append(out, e.Name()+"/"+m.Name())
 				}
 			}
 			continue
 		}
-		if strings.HasSuffix(e.Name(), ".json") {
+		if strings.HasSuffix(e.Name(), ".json") && e.Name() != ".users.json" {
 			out = append(out, e.Name())
 		}
 	}
@@ -129,7 +130,7 @@ type RestoreResult struct {
 	Problems []string `json:"problems,omitempty"`
 }
 
-func restoreHandler(st *Store) http.HandlerFunc {
+func restoreHandler(st *Store, acc *Accounts) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -212,6 +213,7 @@ func restoreHandler(st *Store) http.HandlerFunc {
 		}
 
 		os.MkdirAll(filepath.Join(st.dir, "meals"), 0755)
+		os.MkdirAll(filepath.Join(st.dir, "users"), 0755)
 		for _, e := range entries {
 			full := filepath.Join(st.dir, filepath.FromSlash(e.name))
 			tmp := full + ".tmp"
@@ -227,10 +229,11 @@ func restoreHandler(st *Store) http.HandlerFunc {
 			res.Restored++
 		}
 
-		// force the next listing to reparse
+		// force the next listing to reparse, and reread personal state
 		st.cacheMu.Lock()
 		st.cache = nil
 		st.cacheMu.Unlock()
+		acc.forgetStates()
 
 		log.Printf("restore (%s): %d restored, %d removed, %d skipped",
 			mode, res.Restored, res.Removed, res.Skipped)

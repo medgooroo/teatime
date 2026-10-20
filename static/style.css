@@ -102,15 +102,15 @@ input:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: 
 }
 .searchbar { display: flex; flex-wrap: wrap; gap: 8px; }
 .searchbar input { flex: 1 1 260px; padding: 9px 12px; font-size: 16px; min-width: 0; }
-/* backup and restore */
-#backup {
+/* backup and restore, account panels */
+.panel {
   margin: 40px 0 24px;
   padding: 14px 16px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 8px;
 }
-#backup h2 { margin-top: 0; }
+.panel h2 { margin-top: 0; }
 .backup-row {
   display: flex;
   flex-wrap: wrap;
@@ -780,3 +780,10 @@ button.starred { border-color: var(--star); color: var(--star); }
 }
 #cookedBar[hidden] { display: none; }
 #cookedBar .cooked-note { opacity: 0.7; }
+
+.panel + .panel { margin-top: 16px; }
+#pwForm[hidden] { display: none; }
+.user-row { flex-wrap: nowrap; }
+.user-row .user-name { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.user-row select { padding: 6px; }
+.panel input[type=text], .panel input[type=password] { padding: 7px 10px; min-width: 0; flex: 1 1 160px; }

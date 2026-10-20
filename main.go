@@ -50,10 +50,11 @@ type Recipe struct {
 	Lanes       []Lane   `json:"lanes"`
 	Steps       []Step   `json:"steps"`
 	Source      *Source  `json:"source,omitempty"`
-	Starred     bool     `json:"starred,omitempty"`
-	Hidden      bool     `json:"hidden,omitempty"`
+	Starred     bool     `json:"starred,omitempty"` // per person: filled in on read, never stored
+	Hidden      bool     `json:"hidden,omitempty"`  // stored: hidden for everyone; per-person hiding overlays it
+
 	Tidied      bool     `json:"tidied,omitempty"` // timeline reviewed by hand, not just converted
-	Cooked      int      `json:"cooked,omitempty"` // times the cook has finished it
+	Cooked      int      `json:"cooked,omitempty"` // per person: filled in on read, never stored
 }
 
 func (r *Recipe) total() int {
@@ -197,20 +198,7 @@ func (st *Store) setFlag(id string, mut func(*Recipe), patch func(*indexed)) (*R
 	return rec, nil
 }
 
-func (st *Store) setStar(id string, on bool) (*Recipe, error) {
-	return st.setFlag(id,
-		func(r *Recipe) { r.Starred = on },
-		func(x *indexed) { x.Starred = on })
-}
-
-// addCooked records one more time the recipe was made.
-func (st *Store) addCooked(id string) (*Recipe, error) {
-	return st.setFlag(id,
-		func(r *Recipe) { r.Cooked++ },
-		func(x *indexed) { x.Cooked++ })
-}
-
-// setHidden tucks a recipe away without deleting it; the file (and its
+// setHidden tucks a recipe away for everyone without deleting it; the file (and its
 // Guardian uid) stays on disk, so a sync still knows not to re-import it.
 func (st *Store) setHidden(id string, on bool) (*Recipe, error) {
 	return st.setFlag(id,
@@ -291,8 +279,8 @@ func (st *Store) summaries() ([]indexed, error) {
 		sums = append(sums, indexed{
 			Summary: Summary{
 				ID: r.ID, Name: r.Name, Description: r.Description,
-				TotalSeconds: r.total(), Starred: r.Starred, Hidden: r.Hidden,
-				Tidied: r.Tidied, Cooked: r.Cooked,
+				TotalSeconds: r.total(), Hidden: r.Hidden,
+				Tidied: r.Tidied,
 			},
 			hay:  strings.ToLower(r.Name + "\n" + r.Description),
 			ings: ings,
@@ -389,51 +377,52 @@ func decodeRecipe(w http.ResponseWriter, r *http.Request) (*Recipe, bool) {
 	return &rec, true
 }
 
-func apiHandler(st *Store) http.HandlerFunc {
+func apiHandler(st *Store, acc *Accounts) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/recipes"), "/")
+		me := acc.state(who(r).Name)
 
 		// /api/recipes/{id}/star — mark a recipe for the week ahead
 		// /api/recipes/{id}/hide — tuck it away without deleting
-		for _, flag := range []struct {
-			suffix string
-			set    func(string, bool) (*Recipe, error)
-		}{{"/star", st.setStar}, {"/hide", st.setHidden}} {
-			rest, ok := strings.CutSuffix(id, flag.suffix)
+		// /api/recipes/{id}/cooked — count one more time it was made
+		// All three are the signed-in person's own.
+		for _, suffix := range []string{"/star", "/hide", "/cooked"} {
+			rest, ok := strings.CutSuffix(id, suffix)
 			if !ok {
 				continue
 			}
 			if r.Method != http.MethodPost {
-				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				methodNotAllowed(w)
 				return
 			}
 			on := true
 			if v := r.URL.Query().Get("on"); v != "" {
 				on = v == "1" || strings.EqualFold(v, "true")
 			}
-			rec, err := flag.set(rest, on)
+			rec, err := st.get(rest)
 			if err != nil {
 				httpError(w, err)
 				return
 			}
+			switch suffix {
+			case "/star":
+				me.setStar(rec.ID, on)
+			case "/hide":
+				me.setHidden(rec.ID, on)
+				if !on && rec.Hidden { // recipe-wide hiding lifts for everyone
+					if _, err := st.setHidden(rec.ID, false); err != nil {
+						httpError(w, err)
+						return
+					}
+				}
+			case "/cooked":
+				me.addCooked(rec.ID)
+			}
+			v := me.view()
 			writeJSON(w, http.StatusOK, map[string]any{
-				"id": rec.ID, "starred": rec.Starred, "hidden": rec.Hidden,
+				"id": rec.ID, "starred": v.starred[rec.ID],
+				"hidden": v.hidden[rec.ID] || (rec.Hidden && suffix != "/hide"), "cooked": v.cooked[rec.ID],
 			})
-			return
-		}
-
-		// /api/recipes/{id}/cooked — count one more time it was made
-		if rest, ok := strings.CutSuffix(id, "/cooked"); ok {
-			if r.Method != http.MethodPost {
-				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-				return
-			}
-			rec, err := st.addCooked(rest)
-			if err != nil {
-				httpError(w, err)
-				return
-			}
-			writeJSON(w, http.StatusOK, map[string]any{"id": rec.ID, "cooked": rec.Cooked})
 			return
 		}
 
@@ -488,8 +477,10 @@ func apiHandler(st *Store) http.HandlerFunc {
 			hiddenOnly := r.URL.Query().Get("hidden") == "1"
 			tidied := r.URL.Query().Get("tidied") // "1" only tidied, "0" only untidied
 
+			view := me.view()
 			sums := []Summary{}
 			for _, s := range all {
+				view.apply(&s.Summary)
 				if s.Hidden != hiddenOnly {
 					continue
 				}
@@ -553,6 +544,7 @@ func apiHandler(st *Store) http.HandlerFunc {
 			if !ok {
 				return
 			}
+			rec.Starred, rec.Cooked, rec.Hidden = false, 0, false
 			if err := st.create(rec); err != nil {
 				httpError(w, err)
 				return
@@ -564,6 +556,7 @@ func apiHandler(st *Store) http.HandlerFunc {
 				httpError(w, err)
 				return
 			}
+			me.view().applyRecipe(rec)
 			writeJSON(w, http.StatusOK, rec)
 		case id != "" && r.Method == http.MethodPut:
 			rec, ok := decodeRecipe(w, r)
@@ -571,15 +564,23 @@ func apiHandler(st *Store) http.HandlerFunc {
 				return
 			}
 			rec.ID = id
+			// only recipe-wide hiding is stored with the recipe; a client sends
+			// back the per-person view it was given
+			rec.Starred, rec.Cooked, rec.Hidden = false, 0, false
 			if old, err := st.get(id); err == nil {
-				rec.Cooked = old.Cooked // editing never resets the count
+				rec.Hidden = old.Hidden
 			}
 			if err := st.put(rec); err != nil {
 				httpError(w, err)
 				return
 			}
+			me.view().applyRecipe(rec)
 			writeJSON(w, http.StatusOK, rec)
 		case id != "" && r.Method == http.MethodDelete:
+			if !who(r).Admin {
+				http.Error(w, "admin only", http.StatusForbidden)
+				return
+			}
 			// read it first: an imported recipe has to be remembered as deleted,
 			// or the next Guardian check simply fetches it again
 			rec, _ := st.get(id)
@@ -601,6 +602,7 @@ type Meal struct {
 	Name      string   `json:"name"`
 	RecipeIDs []string `json:"recipeIds"`
 	Hidden    bool     `json:"hidden,omitempty"`
+	Owner     string   `json:"owner,omitempty"` // saved meals are personal
 }
 
 type MealStore struct {
@@ -693,6 +695,20 @@ func (st *MealStore) list() ([]*Meal, error) {
 	return out, nil
 }
 
+// dropOwner deletes every meal a removed user saved.
+func (st *MealStore) dropOwner(owner string) {
+	meals, _ := st.list()
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	for _, m := range meals {
+		if m.Owner == owner {
+			if p, err := st.path(m.ID); err == nil {
+				os.Remove(p)
+			}
+		}
+	}
+}
+
 func mealsHandler(st *MealStore) http.HandlerFunc {
 	decode := func(w http.ResponseWriter, r *http.Request) (*Meal, bool) {
 		var m Meal
@@ -708,6 +724,17 @@ func mealsHandler(st *MealStore) http.HandlerFunc {
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/meals"), "/")
+		me := who(r).Name
+		// someone else's meal looks like it doesn't exist
+		mine := func(id string) (*Meal, error) {
+			st.mu.RLock()
+			m, err := st.read(id)
+			st.mu.RUnlock()
+			if err == nil && m.Owner != me {
+				return nil, os.ErrNotExist
+			}
+			return m, err
+		}
 		switch {
 		case id == "" && r.Method == http.MethodGet:
 			meals, err := st.list()
@@ -715,6 +742,13 @@ func mealsHandler(st *MealStore) http.HandlerFunc {
 				httpError(w, err)
 				return
 			}
+			own := meals[:0]
+			for _, m := range meals {
+				if m.Owner == me {
+					own = append(own, m)
+				}
+			}
+			meals = own
 			sort.Slice(meals, func(i, j int) bool { return meals[i].Name < meals[j].Name })
 			writeJSON(w, http.StatusOK, meals)
 		case id == "" && r.Method == http.MethodPost:
@@ -722,15 +756,14 @@ func mealsHandler(st *MealStore) http.HandlerFunc {
 			if !ok {
 				return
 			}
+			m.Owner = me
 			if err := st.create(m); err != nil {
 				httpError(w, err)
 				return
 			}
 			writeJSON(w, http.StatusCreated, m)
 		case id != "" && r.Method == http.MethodGet:
-			st.mu.RLock()
-			m, err := st.read(id)
-			st.mu.RUnlock()
+			m, err := mine(id)
 			if err != nil {
 				httpError(w, err)
 				return
@@ -741,7 +774,11 @@ func mealsHandler(st *MealStore) http.HandlerFunc {
 			if !ok {
 				return
 			}
-			m.ID = id
+			if _, err := mine(id); err != nil {
+				httpError(w, err)
+				return
+			}
+			m.ID, m.Owner = id, me
 			st.mu.Lock()
 			err := st.write(m)
 			st.mu.Unlock()
@@ -751,6 +788,10 @@ func mealsHandler(st *MealStore) http.HandlerFunc {
 			}
 			writeJSON(w, http.StatusOK, m)
 		case id != "" && r.Method == http.MethodDelete:
+			if _, err := mine(id); err != nil {
+				httpError(w, err)
+				return
+			}
 			p, err := st.path(id)
 			if err != nil {
 				httpError(w, err)
@@ -767,6 +808,16 @@ func mealsHandler(st *MealStore) http.HandlerFunc {
 		default:
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		}
+	}
+}
+
+func adminOnly(h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !who(r).Admin {
+			http.Error(w, "admin only", http.StatusForbidden)
+			return
+		}
+		h(w, r)
 	}
 }
 
@@ -804,14 +855,24 @@ func main() {
 		return
 	}
 
+	acc := newAccounts(*dataDir, st, ms)
+
 	mux := http.NewServeMux()
-	mux.HandleFunc("/api/recipes", apiHandler(st))
-	mux.HandleFunc("/api/recipes/", apiHandler(st))
+	mux.HandleFunc("/api/me", acc.meHandler)
+	mux.HandleFunc("/api/me/", acc.meHandler)
+	mux.HandleFunc("/api/users", acc.usersHandler(ms))
+	mux.HandleFunc("/api/users/", acc.usersHandler(ms))
+	mux.HandleFunc("/api/recipes", apiHandler(st, acc))
+	mux.HandleFunc("/api/recipes/", apiHandler(st, acc))
 	mux.HandleFunc("/api/guardian/sync", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
 			writeJSON(w, http.StatusOK, syncStatus())
 		case http.MethodPost:
+			if !who(r).Admin {
+				http.Error(w, "admin only", http.StatusForbidden)
+				return
+			}
 			limit := 500
 			fmt.Sscanf(r.URL.Query().Get("limit"), "%d", &limit)
 			writeJSON(w, http.StatusOK, startSyncGuardian(st, limit))
@@ -821,8 +882,8 @@ func main() {
 	})
 	mux.HandleFunc("/api/meals", mealsHandler(ms))
 	mux.HandleFunc("/api/meals/", mealsHandler(ms))
-	mux.HandleFunc("/api/backup", backupHandler(st))
-	mux.HandleFunc("/api/restore", restoreHandler(st))
+	mux.HandleFunc("/api/backup", adminOnly(backupHandler(st)))
+	mux.HandleFunc("/api/restore", adminOnly(restoreHandler(st, acc)))
 	// without this browsers apply heuristic freshness and can sit on a stale
 	// script for hours; "no-cache" still allows 304s, it just forces a revalidate
 	mux.Handle("/", noCache(http.FileServer(http.Dir(*staticDir))))
@@ -838,5 +899,5 @@ func main() {
 	if tcp, ok := ln.Addr().(*net.TCPAddr); ok && tcp.IP.To4() == nil && !tcp.IP.IsUnspecified() {
 		log.Printf("warning: bound IPv6 only — 127.0.0.1:%d will not reach this server", tcp.Port)
 	}
-	log.Fatal(http.Serve(ln, newAuth().wrap(mux)))
+	log.Fatal(http.Serve(ln, acc.wrap(mux)))
 }

@@ -156,4 +156,108 @@ $('#restoreBtn').addEventListener('click', async () => {
   }
 });
 
+/* ---------- account and users ---------- */
+
+async function apiError(res) {
+  return (await res.text()).trim() || res.statusText;
+}
+
+const userStatus = $('#userStatus');
+
+async function loadUsers() {
+  const res = await fetch('/api/users');
+  if (!res.ok) return;
+  const list = $('#userList');
+  list.textContent = '';
+  for (const u of await res.json()) {
+    const row = document.createElement('div');
+    row.className = 'backup-row user-row';
+    const name = document.createElement('strong');
+    name.textContent = u.name;
+    name.className = 'user-name';
+    const role = document.createElement('select');
+    for (const r of ['user', 'admin']) {
+      const o = document.createElement('option');
+      o.value = o.textContent = r;
+      o.selected = r === u.role;
+      role.append(o);
+    }
+    role.addEventListener('change', async () => {
+      const res = await fetch('/api/users/' + encodeURIComponent(u.name), {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: role.value }),
+      });
+      userStatus.textContent = res.ok ? `${u.name} is now ${role.value}.` : await apiError(res);
+      if (!res.ok) loadUsers();
+    });
+    const reset = document.createElement('button');
+    reset.textContent = 'Reset';
+    reset.title = 'Set a new password';
+    reset.addEventListener('click', async () => {
+      const pw = prompt(`New password for ${u.name} (8+ characters)`);
+      if (!pw) return;
+      const res = await fetch('/api/users/' + encodeURIComponent(u.name), {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: pw }),
+      });
+      userStatus.textContent = res.ok ? `Password reset; ${u.name} is signed out elsewhere.` : await apiError(res);
+    });
+    const del = document.createElement('button');
+    del.className = 'danger';
+    del.textContent = 'Remove';
+    del.addEventListener('click', async () => {
+      if (!confirm(`Remove ${u.name}? Their stars, cook counts and saved meals go with them.`)) return;
+      const res = await fetch('/api/users/' + encodeURIComponent(u.name), { method: 'DELETE' });
+      userStatus.textContent = res.ok ? `Removed ${u.name}.` : await apiError(res);
+      loadUsers();
+    });
+    row.append(name, role, reset, del);
+    list.append(row);
+  }
+}
+
+$('#userForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const res = await fetch('/api/users', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name: $('#newName').value, password: $('#newPass').value, role: $('#newRole').value,
+    }),
+  });
+  if (res.ok) {
+    userStatus.textContent = `Added ${$('#newName').value.trim().toLowerCase()}.`;
+    e.target.reset();
+    loadUsers();
+  } else {
+    userStatus.textContent = await apiError(res);
+  }
+});
+
+$('#pwForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const res = await fetch('/api/me/password', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ current: $('#pwCurrent').value, new: $('#pwNew').value }),
+  });
+  $('#pwStatus').textContent = res.ok ? 'Password changed; other devices are signed out.' : await apiError(res);
+  if (res.ok) e.target.reset();
+});
+
+async function initAccount() {
+  const res = await fetch('/api/me');
+  if (!res.ok) return;
+  const me = await res.json();
+  const admin = me.role === 'admin';
+  $('#meName').textContent = me.name;
+  $('#meRole').textContent = admin ? ' (admin)' : '';
+  $('#account').querySelector('#pwForm').hidden = me.open;
+  if (me.open) {
+    $('#pwStatus').textContent = 'No accounts yet: set TEATIME_PASSWORD and restart to turn on sign-in and users.';
+  }
+  $('#backup').hidden = !admin;
+  $('#users').hidden = !(admin && !me.open);
+  if (admin && !me.open) loadUsers();
+}
+
+initAccount();
 loadAll();
